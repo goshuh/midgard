@@ -7,13 +7,15 @@ import midgard.misc._
 
 
 case class MidgardParam(
-  val maBits:    Int,
-  val paBits:    Int,
-  val tlbEn:     Int,
-  val tlbSetNum: Int,
-  val tlbWayNum: Int,
-  val ptcEn:     Int,
-  val ptcNum:    Int
+  maBits:    Int,
+  paBits:    Int,
+  tlbEn:     Int,
+  tlbSetNum: Int,
+  tlbWayNum: Int,
+  ptcEn:     Int,
+  ptcNum:    Int,
+  cfgBase:   BigInt,
+  cfgSize:   BigInt
 )
 
 
@@ -50,7 +52,8 @@ class MidgardCFGReq  extends Bundle {
 }
 
 class MidgardCFGResp extends Bundle {
-  val vld  = UInt( 1.W)
+  val inv  = UInt( 1.W)
+  val ren  = UInt( 1.W)
   val data = UInt(64.W)
 }
 
@@ -90,6 +93,7 @@ class MidgardMMU(p: MidgardParam) extends MultiIOModule {
   val cfg_addr_sel  = Dec(cfg_req_i.bits.addr)
 
   val cfg_vld_q = dontTouch(RegEnable(cfg_req_fire, 0.U(1.W), cfg_req_fire | cfg_resp_fire))
+  val cfg_ren_q = dontTouch(RegEnable(cfg_req_i.bits.ren,     cfg_req_fire))
 
   for (i <- 0 to ptwLvl) {
     cfg_sel(i) := cfg_req_fire & cfg_addr_sel(i)
@@ -100,7 +104,8 @@ class MidgardMMU(p: MidgardParam) extends MultiIOModule {
   cfg_req_i.ready := ~cfg_vld_q
 
   cfg_resp_o.valid     := cfg_vld_q
-  cfg_resp_o.bits.vld  := RegEnable(    cfg_sel.orR,     cfg_req_fire)
+  cfg_resp_o.bits.inv  := RegEnable(   ~cfg_sel.orR,     cfg_req_fire)
+  cfg_resp_o.bits.ren  := cfg_ren_q
   cfg_resp_o.bits.data := RegEnable(OrM(cfg_sel, cfg_q), cfg_req_fire)
 
 

@@ -14,8 +14,10 @@ object Main extends App {
     tlbEn     = 1,
     tlbSetNum = 1024,
     tlbWayNum = 4,
-    ptcEn     = 1,
-    ptcNum    = 32
+    ptcEn     = 0, // ?
+    ptcNum    = 32,
+    cfgBase   = 0x11000000,
+    cfgSize   = 0x40
   )
 
   new File("gen").mkdir()
