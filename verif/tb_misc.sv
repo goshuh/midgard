@@ -6,8 +6,8 @@
 
 class tb_base extends verif::object;
 
-    localparam maBits = 64;
-    localparam paBits = 48;
+    localparam maBits = 32;
+    localparam paBits = 32;
 
 endclass
 
@@ -35,7 +35,8 @@ interface tb_intf (
     logic [                63:0] cfg_req_i_bits_data;
     logic                        cfg_resp_o_ready;
     logic                        cfg_resp_o_valid;
-    logic                        cfg_resp_o_bits_vld;
+    logic                        cfg_resp_o_bits_inv;
+    logic                        cfg_resp_o_bits_ren;
     logic [                63:0] cfg_resp_o_bits_data;
 
     initial begin
@@ -96,12 +97,14 @@ class tb_gen extends tb_base;
 
     localparam ptwLvl = (maBits - 4) / 9;
     localparam ptwTop =  maBits - 9 * (ptwLvl - 1) - 12;
+    localparam ptwOff =  6 - ptwLvl;
+    localparam ptwEnd = (maBits - ptwTop) <= paBits ? 0 : (maBits - ptwTop - paBits) / 9 + 1;
 
     verif::plusargs m_arg;
     ma_mem          m_llc;
     pa_mem          m_mem;
 
-    bit [63:0] m_csr [0:ptwLvl];
+    bit [63:0] m_csr [0:6];
     bit [ 8:0] m_mpn [1:ptwLvl][$];
 
     int m_dist_mpn [1:ptwLvl][4];
@@ -209,10 +212,11 @@ class tb_gen extends tb_base;
     endfunction
 
     virtual function bit [maBits-1:0] cal_pma(input int i,
-                                                    bit [maBits-1:12] mpn);
+                                                    bit [63:12] mpn);
         bit [63:0] ret = 64'b0;
+        int        lvl = i + ptwOff;
 
-        case (i)
+        case (lvl)
             1: ret = {m_csr[1][63:10], mpn[63:57], 3'b0};
             2: ret = {m_csr[2][63:19], mpn[63:48], 3'b0};
             3: ret = {m_csr[3][63:28], mpn[63:39], 3'b0};
@@ -227,17 +231,18 @@ class tb_gen extends tb_base;
     endfunction
 
     virtual function bit [paBits-1:0] cal_ppa(input int i,
-                                                    bit [maBits-1:12] mpn,
-                                                    bit [      64:0 ] pte);
-        bit [47:0] ret = 48'b0;
+                                                    bit [63:12] mpn,
+                                                    bit [64:0 ] pte);
+        bit [63:0] ret = 64'b0;
+        int        lvl = i + ptwOff;
 
-        case (i)
-            1: ret = {pte[47:10], mpn[63:57], 3'b0};
-            2: ret = {pte[47:12], mpn[56:48], 3'b0};
-            3: ret = {pte[47:12], mpn[47:39], 3'b0};
-            4: ret = {pte[47:12], mpn[38:30], 3'b0};
-            5: ret = {pte[47:12], mpn[29:21], 3'b0};
-            6: ret = {pte[47:12], mpn[20:12], 3'b0};
+        case (lvl)
+            1: ret = {pte[63:10], mpn[63:57], 3'b0};
+            2: ret = {pte[63:12], mpn[56:48], 3'b0};
+            3: ret = {pte[63:12], mpn[47:39], 3'b0};
+            4: ret = {pte[63:12], mpn[38:30], 3'b0};
+            5: ret = {pte[63:12], mpn[29:21], 3'b0};
+            6: ret = {pte[63:12], mpn[20:12], 3'b0};
             default:
                `err($sformatf("cal_ppa: invalid level: %0d", i));
         endcase
@@ -246,15 +251,21 @@ class tb_gen extends tb_base;
     endfunction
 
     virtual function bit [paBits-1:12] cal_ppn(input int i,
-                                                     bit [maBits-1:12] mpn,
-                                                     bit [      64:0 ] pte);
-        bit [47:12] ret = 36'b0;
+                                                     bit [64:12] mpn,
+                                                     bit [64:0 ] pte);
+        bit [63:12] ret = 48'b0;
+        int         lvl = i + ptwOff;
 
-        case (i)
-            3: ret = {pte[47:39], mpn[38:12]};
-            4: ret = {pte[47:30], mpn[29:12]};
-            5: ret = {pte[47:21], mpn[20:12]};
-            6: ret =  pte[47:12];
+        if (lvl <= ptwEnd)
+           `err($sformatf("cal_ppn: invalid level: %0d", i));
+
+        case (lvl)
+            1: ret = {pte[63:57], mpn[56:12]};
+            2: ret = {pte[63:48], mpn[47:12]};
+            3: ret = {pte[63:39], mpn[38:12]};
+            4: ret = {pte[63:30], mpn[29:12]};
+            5: ret = {pte[63:21], mpn[20:12]};
+            6: ret =  pte[63:12];
             default:
                `err($sformatf("cal_ppn: invalid level: %0d", i));
         endcase
@@ -268,8 +279,8 @@ class tb_gen extends tb_base;
         bit [      64:0 ] pte = {1'b0,  m_csr[0]};
 
         for (int i = 1; i <= ptwLvl; i++) begin
-            bit [maBits-1:0] pma = cal_pma(i, mpn);
-            bit [paBits-1:0] ppa = cal_ppa(i, mpn, pte);
+            bit [maBits-1:0] pma = cal_pma(i, {{64 - maBits{1'b0}}, mpn});
+            bit [paBits-1:0] ppa = cal_ppa(i, {{64 - maBits{1'b0}}, mpn}, pte);
 
             bit [1:0] err;
             bit       blk;
@@ -330,14 +341,14 @@ class tb_gen extends tb_base;
             end
 
             if (pte[0] & ~pte[1] & (i == ptwLvl) |
-                pte[0] &  pte[1] & (i <= 2) |
+                pte[0] &  pte[1] & (i <= ptwEnd) |
                ~pte[0] |  pte[64]) begin
                `info($sformatf("%0x: err", mpn));
                 return {1'b1, ppn, mpn};
             end
 
             if (pte[0] &  pte[1] & ~pte[64]) begin
-                ppn = cal_ppn(i, mpn, pte);
+                ppn = cal_ppn(i, {{64 - maBits{1'b0}}, mpn}, pte);
 
                `info($sformatf("%0x: %0x", mpn, ppn));
                 return {1'b0, ppn, mpn};
@@ -447,7 +458,7 @@ class tb_drv extends tb_base;
     endfunction
 
     task cfg();
-        foreach (m_gen.m_csr[i]) begin
+        for (int i = 0; i <= tb_gen::ptwLvl; i++) begin
             m_vif.cfg_req_i_valid     <= 1'b1;
             m_vif.cfg_req_i_bits_ren  <= 1'b0;
             m_vif.cfg_req_i_bits_addr <= i[3:0];
@@ -460,10 +471,10 @@ class tb_drv extends tb_base;
             m_vif.cfg_resp_o_ready    <= 1'b1;
 
            `waits(m_vif.cfg_resp_o_valid);
-           `info($sformatf("cfg %0x: %0x", i[3:0], m_vif.cfg_resp_o_bits_vld));
+           `info($sformatf("cfg %0x: %0x", i[3:0], m_vif.cfg_resp_o_bits_inv));
             m_vif.cfg_resp_o_ready    <= 1'b0;
 
-            if (~m_vif.cfg_resp_o_bits_vld)
+            if (m_vif.cfg_resp_o_bits_inv)
                `err($sformatf("cfg: initialization failed on CSR[%0d]", i));
         end
 

@@ -8,6 +8,7 @@ import chipsalliance.rocketchip.config._
 import freechips.rocketchip.diplomacy._
 import freechips.rocketchip.subsystem._
 import freechips.rocketchip.tilelink._
+import freechips.rocketchip.util._
 
 import midgard.misc._
 
@@ -16,8 +17,8 @@ case object MidgardKey extends Field[MidgardParam]
 
 class WithMidgard extends Config((site, here, up) => {
   case MidgardKey => MidgardParam(
-    maBits    = 64,
-    paBits    = 48,
+    maBits    = 32,
+    paBits    = 32,
     tlbEn     = 1,
     tlbSetNum = 1024,
     tlbWayNum = 4,
@@ -101,7 +102,7 @@ class MidgardTLWrapper(implicit p: Parameters) extends LazyModule()(p) {
                                      TLMessages.AccessAckData,
                                      TLMessages.AccessAck)
     cfg_in.d.bits.param       := 0.U
-    cfg_in.d.bits.size        := 6.U
+    cfg_in.d.bits.size        := 3.U
     cfg_in.d.bits.source      := 0.U
     cfg_in.d.bits.sink        := 0.U
     cfg_in.d.bits.denied      := u_mmu.cfg_resp_o.bits.inv
@@ -122,10 +123,10 @@ class MidgardTLWrapper(implicit p: Parameters) extends LazyModule()(p) {
     // a
     mem_in.a.valid            := u_mmu.mem_req_o.valid
     mem_in.a.bits.opcode      := TLMessages.Get
-    mem_in.a.bits.size        := 6.U
+    mem_in.a.bits.size        := 3.U
     mem_in.a.bits.source      := 0.U
     mem_in.a.bits.address     := u_mmu.mem_req_o.bits
-    mem_in.a.bits.mask        := 0.U
+    mem_in.a.bits.mask        := MaskGen(u_mmu.mem_req_o.bits, 3.U, 8)
     mem_in.a.bits.data        := 0.U
     mem_in.a.bits.corrupt     := 0.U
 

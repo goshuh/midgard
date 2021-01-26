@@ -36,6 +36,20 @@ module tb;
 
 
     //
+    // random seed
+
+    int seed;
+
+    initial begin
+        verif::plusargs arg = new("");
+
+        seed = arg.get_int("seed", 0);
+
+        void'($random(seed));
+    end
+
+
+    //
     // connections
 
     tb_intf
@@ -81,7 +95,8 @@ module tb;
            .cfg_req_i_bits_data  (m_vif.cfg_req_i_bits_data                ),
            .cfg_resp_o_ready     (m_vif.cfg_resp_o_ready                   ),
            .cfg_resp_o_valid     (m_vif.cfg_resp_o_valid                   ),
-           .cfg_resp_o_bits_vld  (m_vif.cfg_resp_o_bits_vld                ),
+           .cfg_resp_o_bits_inv  (m_vif.cfg_resp_o_bits_inv                ),
+           .cfg_resp_o_bits_ren  (m_vif.cfg_resp_o_bits_ren                ),
            .cfg_resp_o_bits_data (m_vif.cfg_resp_o_bits_data               ));
 
 
