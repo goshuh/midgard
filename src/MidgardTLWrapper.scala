@@ -86,7 +86,7 @@ class MidgardTLWrapper(implicit p: Parameters) extends LazyModule()(p) {
     cfg_in.a.ready            := u_mmu.cfg_req_i.ready
 
     u_mmu.cfg_req_i.valid     := cfg_in.a.valid
-    u_mmu.cfg_req_i.bits.ren  := cfg_in.a.bits.opcode === TLMessages.Get
+    u_mmu.cfg_req_i.bits.rnw  := cfg_in.a.bits.opcode === TLMessages.Get
     u_mmu.cfg_req_i.bits.addr := cfg_in.a.bits.address
     u_mmu.cfg_req_i.bits.data := cfg_in.a.bits.data
 
@@ -98,7 +98,7 @@ class MidgardTLWrapper(implicit p: Parameters) extends LazyModule()(p) {
 
     // d
     cfg_in.d.valid            := u_mmu.cfg_resp_o.valid
-    cfg_in.d.bits.opcode      := Mux(u_mmu.cfg_resp_o.bits.ren,
+    cfg_in.d.bits.opcode      := Mux(u_mmu.cfg_resp_o.bits.rnw,
                                      TLMessages.AccessAckData,
                                      TLMessages.AccessAck)
     cfg_in.d.bits.param       := 0.U
