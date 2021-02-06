@@ -118,6 +118,21 @@ package object misc {
     }).reduce(_ ++ _)
   }
 
+  def Sel(s: UInt, d: UInt): UInt = {
+    require(s.getWidth == 1)
+
+    Ext(s, d.getWidth) & d
+  }
+
+  def Spl(d: UInt, n: Int): Seq[UInt] = {
+    val s = (d.getWidth + n - 1) / n
+    val t =  Pad(d, s * n)
+
+    Seq.tabulate(s)(i => {
+      t(i * n + n - 1, i * n)
+    })
+  }
+
   private def orx(f: (UInt, Int) => UInt, d: UInt, n: Int): UInt = {
     if (n >= d.getWidth)
       d
@@ -171,14 +186,31 @@ package object misc {
     BSL(1.U(w.W), d)
   }
 
-  def Pri(d: UInt): UInt = {
-    val o = OrR(d)
+  private def pri(s: String, f: UInt => UInt, g: (UInt, Int) => UInt, d: UInt, i: Int = 1): UInt = {
+    i match {
+      case 1 =>
+        val o = f(d)
+        o ^ g(o, 1)
+      case _ =>
+        require(false, s"${s}: invalid index: ${i}")
+        UInt()
+    }
+  }
 
-    o ^ ShR(o, 1)
+  def PrL(d: UInt, i: Int = 1): UInt = {
+    pri("PrL", OrR, ShR, d, i)
+  }
+
+  def PrR(d: UInt, i: Int = 1): UInt = {
+    pri("PrR", OrL, ShL, d, i)
   }
 
 
   import scala.language.implicitConversions
+
+  implicit def BitsToUInt(i: Bits): UInt = {
+    i.asUInt
+  }
 
   implicit def UIntToBool(i: UInt): Bool = {
     require(i.getWidth == 1)

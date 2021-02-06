@@ -16,8 +16,16 @@ case class MidgardParam(
   ptcNum:    Int,
   cfgBase:   BigInt,
   cfgSize:   BigInt,
-  cfgInit:   BigInt = 0
-)
+  cfgInit:   BigInt = 0) {
+
+  val ptwLvl   = (maBits - 12 + (9 - 1)) / 9
+  val ptwTop   =  maBits - 12 - (ptwLvl - 1)  * 9
+
+  val tlbTagHi =  maBits - 13
+  val tlbTagLo =  log2(tlbSetNum)
+  val tlbSetHi =  tlbTagLo - 1
+  val tlbSetLo =  0
+}
 
 
 class MidgardMMUResp(val p: MidgardParam) extends Bundle {
@@ -31,6 +39,22 @@ object MidgardMMUResp {
 
     res.err := e
     res.ppn := n
+
+    res
+  }
+}
+
+class MidgardMEMReq(val p: MidgardParam) extends Bundle {
+  val pma = UInt(p.maBits.W)
+  val ppa = UInt(p.paBits.W)
+}
+
+object MidgardMEMReq {
+  def apply(p: MidgardParam, m: UInt, q: UInt): MidgardMEMReq = {
+    val res = Wire(new MidgardMEMReq(p))
+
+    res.pma := m
+    res.ppa := q
 
     res
   }
@@ -62,12 +86,6 @@ class MidgardCFGResp extends Bundle {
 class MidgardMMU(p: MidgardParam) extends MultiIOModule {
 
   // --------------------------
-  // param
-
-  val ptwLvl = (p.maBits - 12 + (9 - 1)) / 9
-
-
-  // --------------------------
   // io
 
   val mmu_req_i  = IO(Flipped(Decoupled(UInt((p.maBits - 12).W))))
@@ -76,7 +94,7 @@ class MidgardMMU(p: MidgardParam) extends MultiIOModule {
   val llc_req_o  = IO(        Decoupled(UInt(p.maBits.W)))
   val llc_resp_i = IO(Flipped(Decoupled(new MidgardLLCResp())))
 
-  val mem_req_o  = IO(        Decoupled(UInt(p.paBits.W)))
+  val mem_req_o  = IO(        Decoupled(new MidgardMEMReq(p)))
   val mem_resp_i = IO(Flipped(Decoupled(new MidgardMEMResp())))
 
   val cfg_req_i  = IO(Flipped(Decoupled(new MidgardCFGReq())))
@@ -86,8 +104,8 @@ class MidgardMMU(p: MidgardParam) extends MultiIOModule {
   // --------------------------
   // cfg
 
-  val cfg_q   = dontTouch(Wire(Vec(ptwLvl + 1, UInt(p.maBits.W))))
-  val cfg_sel = dontTouch(Wire(Vec(ptwLvl + 1, UInt(1.W))))
+  val cfg_q   = dontTouch(Wire(Vec(p.ptwLvl + 1, UInt(p.maBits.W))))
+  val cfg_sel = dontTouch(Wire(Vec(p.ptwLvl + 1, UInt(1.W))))
 
   val cfg_req_fire  = cfg_req_i.fire()
   val cfg_resp_fire = cfg_resp_o.fire()
@@ -96,7 +114,7 @@ class MidgardMMU(p: MidgardParam) extends MultiIOModule {
   val cfg_vld_q = dontTouch(RegEnable(cfg_req_fire, 0.U(1.W), cfg_req_fire | cfg_resp_fire))
   val cfg_rnw_q = dontTouch(RegEnable(cfg_req_i.bits.rnw,     cfg_req_fire))
 
-  for (i <- 0 to ptwLvl) {
+  for (i <- 0 to p.ptwLvl) {
     cfg_sel(i) := cfg_req_fire & cfg_addr_sel(i)
 
     cfg_q(i) := (if (i == 0)

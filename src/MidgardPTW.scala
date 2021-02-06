@@ -16,13 +16,6 @@ class MidgardPTCEntry(val p: MidgardParam) extends Bundle {
 class MidgardPTW(p: MidgardParam) extends MultiIOModule {
 
   // --------------------------
-  // param
-
-  val ptwLvl = (p.maBits - 12 + (9      - 1)) / 9
-  val ptwTop =  p.maBits - 12 - (ptwLvl - 1)  * 9
-
-
-  // --------------------------
   // io
 
   val ptw_req_i  = IO(Flipped(Decoupled(UInt((p.maBits - 12).W))))
@@ -31,10 +24,10 @@ class MidgardPTW(p: MidgardParam) extends MultiIOModule {
   val llc_req_o  = IO(        Decoupled(UInt(p.maBits.W)))
   val llc_resp_i = IO(Flipped(Decoupled(new MidgardLLCResp())))
 
-  val mem_req_o  = IO(        Decoupled(UInt(p.paBits.W)))
+  val mem_req_o  = IO(        Decoupled(new MidgardMEMReq(p)))
   val mem_resp_i = IO(Flipped(Decoupled(new MidgardMEMResp())))
 
-  val cfg_i      = IO(            Input(Vec(ptwLvl + 1, UInt((p.maBits).W))))
+  val cfg_i      = IO(            Input(Vec(p.ptwLvl + 1, UInt((p.maBits).W))))
 
 
   // --------------------------
@@ -62,15 +55,15 @@ class MidgardPTW(p: MidgardParam) extends MultiIOModule {
   val dir_q = dontTouch(Wire(UInt(1.W)))
   val mpn_q = dontTouch(Wire(UInt((p.maBits - 12).W)))
 
-  val lvl_q = dontTouch(Reg (UInt(ptwLvl.W)))
+  val lvl_q = dontTouch(Reg (UInt(p.ptwLvl.W)))
   val pma_q = dontTouch(Reg (UInt((p.maBits - 3).W)))
   val ppa_q = dontTouch(Reg (UInt((p.paBits - 3).W)))
 
   val lvl_top = lvl_q(0)
-  val lvl_bot = lvl_q(ptwLvl - 1)
+  val lvl_bot = lvl_q(p.ptwLvl - 1)
   val lvl_inv = OrM(lvl_q.asBools,
-                    Seq.tabulate(ptwLvl)(n => {
-                      if ((p.maBits - ptwTop - n * 9) >= p.paBits)
+                    Seq.tabulate(p.ptwLvl)(n => {
+                      if ((p.maBits - p.ptwTop - n * 9) >= p.paBits)
                         1.U(1.W)
                       else
                         0.U(1.W)
@@ -127,17 +120,17 @@ class MidgardPTW(p: MidgardParam) extends MultiIOModule {
 
   when (llc_start | llc_step | mem_step) {
     lvl_q := Mux(llc_start,
-                 Cat(1.U(1.W), 0.U((ptwLvl - 1).W)),
+                 Cat(1.U(1.W), 0.U((p.ptwLvl - 1).W)),
                  lvl_nxt)
   }
 
   // construct pte's ma 1 cycle earlier: for ptc timing
-  val pma_1st = Cat(cfg_i(ptwLvl)(p.maBits - 1, p.maBits - 9),
+  val pma_1st = Cat(cfg_i(p.ptwLvl)(p.maBits - 1, p.maBits - 9),
                     ptw_req_i.bits)
 
-  val pma_nxt = OrM(lvl_nxt(ptwLvl - 1, 0).asBools,
-                    Seq.tabulate(ptwLvl)(n => {
-                      val s = (ptwLvl - n) * 9
+  val pma_nxt = OrM(lvl_nxt(p.ptwLvl - 1, 0).asBools,
+                    Seq.tabulate(p.ptwLvl)(n => {
+                      val s = (p.ptwLvl - n) * 9
 
                       Cat(cfg_i(n + 1)(p.maBits - 1, p.maBits - s),
                           mpn_q(p.maBits - 13, s - 9))
@@ -150,16 +143,16 @@ class MidgardPTW(p: MidgardParam) extends MultiIOModule {
   }
 
   // construct pte's pa 1 cycle earlier
-  val ppa_mux = OrM(lvl_nxt(ptwLvl - 1, 1).asBools,
-                    Seq.tabulate(ptwLvl - 1)(n => {
-                      val s = (ptwLvl - n) * 9
+  val ppa_mux = OrM(lvl_nxt(p.ptwLvl - 1, 1).asBools,
+                    Seq.tabulate(p.ptwLvl - 1)(n => {
+                      val s = (p.ptwLvl - n) * 9
 
                       mpn_q(s - 10, s - 18)
                     }))
 
   val ppa_1st = Mux(llc_end,
-                    Cat(cfg_i(0)(p.paBits - 1, ptwTop + 3),
-                        mpn_q(p.maBits - 13, p.maBits - ptwTop - 12)),
+                    Cat(cfg_i(0)(p.paBits - 1, p.ptwTop + 3),
+                        mpn_q(p.maBits - 13, p.maBits - p.ptwTop - 12)),
                     Cat(llc_ppn,
                         ppa_mux))
 
@@ -216,7 +209,7 @@ class MidgardPTW(p: MidgardParam) extends MultiIOModule {
 
     when (ptc_ren) {
       when (ptc_hit_raw) {
-        assert(Pri(ptc_hit_way) === ptc_hit_way)
+        assert(PrR(ptc_hit_way) === ptc_hit_way)
         printf(p"PTC h ${Hexadecimal(pma_q)}: w${Hexadecimal(Enc(ptc_hit_way))} ${Hexadecimal(ptc_pte_raw)}\n")
       } .otherwise {
         printf(p"PTC m ${Hexadecimal(pma_q)}\n")
@@ -273,9 +266,9 @@ class MidgardPTW(p: MidgardParam) extends MultiIOModule {
       llc_fsm_en  := llc_resp_fire
       llc_fsm_nxt := Mux(p.ptcEn.U(1.W),
                          fsm_idle,
-                         Mux(llc_resp_hit & llc_pte_v & ~llc_pte_b & ~lvl_top,
-                             fsm_req,
-                             fsm_idle))
+                         Mux(llc_resp_hit | lvl_top,
+                             fsm_idle,
+                             fsm_req))
     }
   }
 
@@ -382,7 +375,7 @@ class MidgardPTW(p: MidgardParam) extends MultiIOModule {
   llc_resp_i.ready :=  llc_fsm_q(1)
 
   mem_req_o.valid  :=  mem_fsm_q(0)
-  mem_req_o.bits   :=  Cat(ppa_q, 0.U(3.W))
+  mem_req_o.bits   :=  MidgardMEMReq(p, Cat(pma_q, 0.U(3.W)), Cat(ppa_q, 0.U(3.W)))
   mem_resp_i.ready :=  mem_fsm_q(1)
 
   ptw_req_i.ready  := ~vld_q & ~ptw_resp_o.valid

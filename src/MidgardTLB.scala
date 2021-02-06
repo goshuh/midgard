@@ -43,19 +43,6 @@ object MidgardTLBEntry {
 class MidgardTLB(p: MidgardParam) extends MultiIOModule {
 
   // --------------------------
-  // params
-
-  val tlbTagHi =  p.maBits - 13
-  val tlbTagLo =  log2(p.tlbSetNum)
-
-  val tlbSetHi =  tlbTagLo - 1
-  val tlbSetLo =  0
-
-  val ptwLvl   = (p.maBits - 12 + (9      - 1)) / 9
-  val ptwTop   =  p.maBits - 12 - (ptwLvl - 1)  * 9
-
-
-  // --------------------------
   // io
 
   val tlb_req_i  = IO(Flipped(Decoupled(UInt((p.maBits - 12).W))))
@@ -87,10 +74,10 @@ class MidgardTLB(p: MidgardParam) extends MultiIOModule {
   if (p.tlbEn != 0) {
 
     // init reset
-    val rst_q = dontTouch(RegInit(UInt((tlbTagLo + 1).W), 0.U((tlbTagLo + 1).W)))
+    val rst_q = dontTouch(RegInit(UInt((p.tlbTagLo + 1).W), 0.U((p.tlbTagLo + 1).W)))
 
     when (~rst_done) {
-      rst_q := rst_q + 1.U((tlbTagLo + 1).W)
+      rst_q := rst_q + 1.U((p.tlbTagLo + 1).W)
     }
 
     val ren_s0   = tlb_req_fire
@@ -101,12 +88,12 @@ class MidgardTLB(p: MidgardParam) extends MultiIOModule {
     val mpn_s1_q = dontTouch(RegEnable(mpn_s0,   ren_s0))
     val mpn_s2_q = dontTouch(RegEnable(mpn_s1_q, ren_s1_q))
 
-    val raddr_s1 = mpn_s1_q(tlbSetHi, tlbSetLo)
+    val raddr_s1 = mpn_s1_q(p.tlbSetHi, p.tlbSetLo)
     val rdata_s2 = dontTouch(Wire(Vec(p.tlbWayNum, new MidgardTLBEntry(p))))
 
     val wen      = dontTouch(Wire(UInt(1.W)))
     val wsel     = dontTouch(Wire(UInt(p.tlbWayNum.W)))
-    val waddr    = dontTouch(Wire(UInt(tlbTagLo.W)))
+    val waddr    = dontTouch(Wire(UInt(p.tlbTagLo.W)))
     val wdata    =           Wire(new MidgardTLBEntry(p))
 
     // mem model
@@ -134,8 +121,8 @@ class MidgardTLB(p: MidgardParam) extends MultiIOModule {
     }
 
     // hit check
-    val mpn_set_s2 = mpn_s2_q(tlbSetHi, tlbSetLo)
-    val mpn_tag_s2 = mpn_s2_q(tlbTagHi, tlbTagLo)
+    val mpn_set_s2 = mpn_s2_q(p.tlbSetHi, p.tlbSetLo)
+    val mpn_tag_s2 = mpn_s2_q(p.tlbTagHi, p.tlbTagLo)
 
     val vld_way_s2 = rdata_s2.map(_.vld)
     val hit_way_s2 = rdata_s2.map(e => {
@@ -153,17 +140,17 @@ class MidgardTLB(p: MidgardParam) extends MultiIOModule {
 
     val rpl_way_s2 = Mux(vld_way_s2.andR,
                          Dec( rnd_q(log2(p.tlbWayNum) - 1, 0)),
-                         Pri(~vld_way_s2))
+                         PrR(~vld_way_s2))
 
     // write
     wen   := ptw_resp_fire | ~rst_done
 
     wsel  := Mux(rst_done, RegEnable(rpl_way_s2, mis_s2), ~0.U(p.tlbWayNum.W))
-    waddr := Mux(rst_done, RegEnable(mpn_set_s2, mis_s2),  rst_q(tlbSetHi, tlbSetLo))
+    waddr := Mux(rst_done, RegEnable(mpn_set_s2, mis_s2),  rst_q(p.tlbSetHi, p.tlbSetLo))
     wdata := Mux(rst_done, ptw_resp_i.bits,                MidgardTLBEntry(p))
 
     // output
-    rst_done := rst_q(tlbTagLo)
+    rst_done := rst_q(p.tlbTagLo)
 
     tlb_busy := ren_s1_q |  ren_s2_q
     tlb_data := OrM(hit_way_s2,
@@ -175,7 +162,7 @@ class MidgardTLB(p: MidgardParam) extends MultiIOModule {
 
     when (ren_s2_q) {
       when (hit_raw_s2) {
-        assert(Pri(hit_way_s2) === hit_way_s2)
+        assert(PrR(hit_way_s2) === hit_way_s2)
         printf(p"TLB h ${Hexadecimal(mpn_s2_q)}: s${Hexadecimal(mpn_set_s2)} w${Hexadecimal(Enc(hit_way_s2))}: ${Hexadecimal(tlb_data.err)} ${Hexadecimal(tlb_data.ppn)}\n")
       } .otherwise {
         printf(p"TLB m ${Hexadecimal(mpn_s2_q)}\n")
@@ -204,12 +191,12 @@ class MidgardTLB(p: MidgardParam) extends MultiIOModule {
 
   val tlb_mpn = Cat(tlb_mux.mpn,
                     Mux(ptw_busy_q,
-                        ptw_req_o.bits(tlbSetHi, tlbSetLo),
-                        mpn_s2        (tlbSetHi, tlbSetLo)))
+                        ptw_req_o.bits(p.tlbSetHi, p.tlbSetLo),
+                        mpn_s2        (p.tlbSetHi, p.tlbSetLo)))
 
-  val tlb_ppn = OrM(Dec(tlb_mux.lvl).asBools.slice(0, ptwLvl),
-                    Seq.tabulate(ptwLvl)(n => {
-                      val h = p.maBits - ptwTop - n * 9
+  val tlb_ppn = OrM(Dec(tlb_mux.lvl).asBools.slice(0, p.ptwLvl),
+                    Seq.tabulate(p.ptwLvl)(n => {
+                      val h = p.maBits - p.ptwTop - n * 9
 
                       if (h >= p.paBits)
                         0.U((p.paBits - 12).W)

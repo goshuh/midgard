@@ -30,13 +30,13 @@ interface tb_intf (
 
     logic                        cfg_req_i_ready;
     logic                        cfg_req_i_valid;
-    logic                        cfg_req_i_bits_ren;
+    logic                        cfg_req_i_bits_rnw;
     logic [                 3:0] cfg_req_i_bits_addr;
     logic [                63:0] cfg_req_i_bits_data;
     logic                        cfg_resp_o_ready;
     logic                        cfg_resp_o_valid;
     logic                        cfg_resp_o_bits_inv;
-    logic                        cfg_resp_o_bits_ren;
+    logic                        cfg_resp_o_bits_rnw;
     logic [                63:0] cfg_resp_o_bits_data;
 
     initial begin
@@ -55,13 +55,14 @@ interface tb_intf_mem (
     input wire reset
 );
 
-    logic        mem_req_o_ready;
-    logic        mem_req_o_valid;
-    logic [63:0] mem_req_o_bits;
-    logic        mem_resp_i_ready;
-    logic        mem_resp_i_valid;
-    logic        mem_resp_i_bits_err;
-    logic [63:0] mem_resp_i_bits_pte;
+    logic                       mem_req_o_ready;
+    logic                       mem_req_o_valid;
+    logic [tb_base::maBits-1:0] mem_req_o_bits_pma;
+    logic [tb_base::paBits-1:0] mem_req_o_bits_ppa;
+    logic                       mem_resp_i_ready;
+    logic                       mem_resp_i_valid;
+    logic                       mem_resp_i_bits_err;
+    logic [               63:0] mem_resp_i_bits_pte;
 
     initial begin
         mem_req_o_ready  <= 1'b0;
@@ -126,13 +127,13 @@ class tb_gen extends tb_base;
     endfunction
 
     virtual function void init();
-        m_csr = '{{{64-paBits{1'b0}},   1'b1, {paBits-1{1'b0}}},  // root
-                  {{64-maBits{1'b0}}, 3'b001, {maBits-3{1'b0}}},  // l1 base
-                  {{64-maBits{1'b0}}, 3'b010, {maBits-3{1'b0}}},  // l2 base
-                  {{64-maBits{1'b0}}, 3'b011, {maBits-3{1'b0}}},  // l3 base
-                  {{64-maBits{1'b0}}, 3'b100, {maBits-3{1'b0}}},  // l4 base
-                  {{64-maBits{1'b0}}, 3'b101, {maBits-3{1'b0}}},  // l5 base
-                  {{64-maBits{1'b0}}, 3'b110, {maBits-3{1'b0}}}}; // l6 base
+        m_csr = '{{{64-paBits{1'b0}},   1'b1, {paBits-2{1'b0}}, 1'b1}, // root
+                  {{64-maBits{1'b0}}, 3'b001, {maBits-3{1'b0}}},       // l1 base
+                  {{64-maBits{1'b0}}, 3'b010, {maBits-3{1'b0}}},       // l2 base
+                  {{64-maBits{1'b0}}, 3'b011, {maBits-3{1'b0}}},       // l3 base
+                  {{64-maBits{1'b0}}, 3'b100, {maBits-3{1'b0}}},       // l4 base
+                  {{64-maBits{1'b0}}, 3'b101, {maBits-3{1'b0}}},       // l5 base
+                  {{64-maBits{1'b0}}, 3'b110, {maBits-3{1'b0}}}};      // l6 base
     endfunction
 
     virtual function void hook();
@@ -460,7 +461,7 @@ class tb_drv extends tb_base;
     task cfg();
         for (int i = 0; i <= tb_gen::ptwLvl; i++) begin
             m_vif.cfg_req_i_valid     <= 1'b1;
-            m_vif.cfg_req_i_bits_ren  <= 1'b0;
+            m_vif.cfg_req_i_bits_rnw  <= 1'b0;
             m_vif.cfg_req_i_bits_addr <= i[3:0];
             m_vif.cfg_req_i_bits_data <= m_gen.m_csr[i];
 
@@ -545,7 +546,7 @@ class tb_slv extends tb_base;
         m_acc_max = arg.get_int("acc_max", 100);
     endfunction
 
-    virtual function bit [64:0] get_data(input bit [63:0] addr);
+    virtual function bit [64:0] get_data();
     endfunction
 
     task slv();
@@ -559,7 +560,7 @@ class tb_slv extends tb_base;
                 m_vif.mem_req_o_ready <= 1'b1;
 
            `waits(m_vif.mem_req_o_valid);
-            data = get_data(m_vif.mem_req_o_bits);
+            data = get_data();
 
             if (dly) begin
                `waitn(dly - 1);
@@ -602,11 +603,11 @@ class tb_slv_llc extends tb_slv;
        `get(ma_mem, "llc", m_llc);
     endfunction
 
-    virtual function bit [64:0] get_data(input bit [63:0] addr);
-        bit        hit =  m_llc.chk(addr[maBits-1:0]);
-        bit [64:0] ret = {hit, hit ? m_llc.get_byte(addr[maBits-1:0]) : 64'hdeadbeef};
+    virtual function bit [64:0] get_data();
+        bit        hit =  m_llc.chk(m_vif.mem_req_o_bits_pma);
+        bit [64:0] ret = {hit, hit ? m_llc.get_byte(m_vif.mem_req_o_bits_pma) : 64'hdeadbeef};
 
-       `info($sformatf("%0x: %0x %0x", addr[maBits-1:0], ret[64], ret[63:0]));
+       `info($sformatf("%0x: %0x %0x", m_vif.mem_req_o_bits_pma, ret[64], ret[63:0]));
         return ret;
     endfunction
 
@@ -624,11 +625,11 @@ class tb_slv_mem extends tb_slv;
        `get(pa_mem, "mem", m_mem);
     endfunction
 
-    virtual function bit [64:0] get_data(input bit [63:0] addr);
-        bit        hit = m_mem.chk(addr[paBits-1:0]);
-        bit [64:0] ret = hit ? m_mem.get_byte(addr[paBits-1:0]) : {1'b1, 64'hdeadbeef};
+    virtual function bit [64:0] get_data();
+        bit        hit = m_mem.chk(m_vif.mem_req_o_bits_ppa);
+        bit [64:0] ret = hit ? m_mem.get_byte(m_vif.mem_req_o_bits_ppa) : {1'b1, 64'hdeadbeef};
 
-       `info($sformatf("%0x: %0x %0x", addr[paBits-1:0], ret[64], ret[63:0]));
+       `info($sformatf("%0x: %0x %0x", m_vif.mem_req_o_bits_ppa, ret[64], ret[63:0]));
         return ret;
     endfunction
 
