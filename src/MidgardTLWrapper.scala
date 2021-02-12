@@ -24,6 +24,7 @@ class WithMidgard extends Config((site, here, up) => {
     tlbWayNum = 4,
     ptcEn     = 0,
     ptcNum    = 32,
+    prbEn     = 1,
     cfgBase   = 0x11000000,
     cfgSize   = 0x40
   )
@@ -31,15 +32,12 @@ class WithMidgard extends Config((site, here, up) => {
 
 
 class MidgardPRBEntry(val p: MidgardParam, val s: Int) extends Bundle {
-  val llc  = UInt(1.W)
-  val mmu  = UInt(1.W)
+  val vld  = UInt(1.W)
   val mem  = UInt(1.W)
-  val src  = UInt(s.W)
+  val llc  = UInt(1.W)
   val addr = UInt((p.maBits - 6).W)
   val data = UInt(512.W)
-
-  def vld  = llc | mmu
-  def rdy  = llc & mem
+  val src  = UInt(s.W)
 }
 
 class MidgardTLWrapper(implicit p: Parameters) extends LazyModule()(p) {
@@ -217,8 +215,9 @@ class MidgardTLWrapper(implicit p: Parameters) extends LazyModule()(p) {
 
     u_mmu.llc_resp_i.valid    :=  llc.c.valid &  llc_c_probe_resp
 
-    u_mmu.llc_resp_i.bits.hit := (llc.c.bits.param =/= TLPermissions.NtoN)
-    u_mmu.llc_resp_i.bits.pte :=  OrM(Dec(RegEnable(llc.b.bits.address(5, 3), llc.b.fire())).asBools,
+    u_mmu.llc_resp_i.bits.hit := (llc.c.bits.param =/= TLPermissions.NtoN) &
+                                 (llc.c.bits.param =/= TLPermissions.BtoN)
+    u_mmu.llc_resp_i.bits.pte :=  OrM(Dec(RegEnable(u_mmu.llc_req_o.bits(5, 3), llc.b.fire())).asBools,
                                       Spl(llc.c.bits.data, 64))
 
     llc.c.ready               :=  Mux(llc_c_probe_resp,
@@ -299,6 +298,7 @@ class MidgardTLWrapper(implicit p: Parameters) extends LazyModule()(p) {
     val llc_x_mem_a_bits       =  Mux(llc_c_mmu_a.valid,
                                       llc_c_mmu_a.bits,
                                       llc_a_mmu_a.bits)
+    val llc_x_mem_a_bits_q     =  RegEnable(llc_x_mem_a_bits, mmu_req_fire)
 
     mmu_a_mem_a.valid         :=  u_mmu.mem_req_o.valid
 
@@ -313,11 +313,16 @@ class MidgardTLWrapper(implicit p: Parameters) extends LazyModule()(p) {
 
     llc_x_mem_a.valid         :=  u_mmu.mmu_resp_o.valid
 
-    llc_x_mem_a.bits          :=  RegEnable(llc_x_mem_a_bits, mmu_req_fire)
     llc_x_mem_a.bits.opcode   :=  Mux(mmu_a_sel_q,
                                       TLMessages.PutFullData,
                                       TLMessages.Get)
     llc_x_mem_a.bits.param    :=  0.U
+    llc_x_mem_a.bits.size     :=  llc_x_mem_a_bits_q.size
+    llc_x_mem_a.bits.source   :=  llc_x_mem_a_bits_q.source
+    llc_x_mem_a.bits.address  :=  Cat(Pad(u_mmu.mmu_resp_o.bits.ppn, q.maBits - 12), llc_x_mem_a_bits_q.address(11, 0))
+    llc_x_mem_a.bits.mask     :=  llc_x_mem_a_bits_q.mask
+    llc_x_mem_a.bits.corrupt  :=  u_mmu.mmu_resp_o.bits.err
+    llc_x_mem_a.bits.data     :=  llc_x_mem_a_bits_q.data
 
     mem_a_sel_q               :=  RegEnable(mmu_a_mem_a.valid, mem.a.fire())
 
@@ -373,64 +378,72 @@ class MidgardTLWrapper(implicit p: Parameters) extends LazyModule()(p) {
     // ------------------------
     // prb
 
-    val prb_q = Wire(Vec(q.ptwLvl, new MidgardPRBEntry(q, adp_node.in.head._2.bundle.sourceBits)))
+    if (q.prbEn >= 0) {
 
-    val prb_llc = llc.a.fire() & mmu_busy
-    val prb_mmu = u_mmu.mem_req_o.fire()
-    val prb_mem = u_mmu.mem_resp_i.fire()
-    val prb_clr = prb_d_llc_d.fire()
+      val prb_q = Wire(Vec(q.ptwLvl, new MidgardPRBEntry(q, adp_node.in.head._2.bundle.sourceBits)))
 
-    // we don't know whether llc is quicker than mmu
-    val prb_llc_addr =       llc.a.bits.address(q.maBits - 1, 6)
-    val prb_mmu_addr = u_mmu.mem_req_o.bits.pma(q.maBits - 1, 6)
+      val prb_req = u_mmu.llc_req_o .fire()
+      val prb_ack = u_mmu.llc_resp_i.fire()
+      val prb_mem = u_mmu.mem_resp_i.fire()
+      val prb_llc = llc.a.fire() & mmu_busy
+      val prb_clr = prb_d_llc_d.fire()
 
-    val prb_vld     =  prb_q.map(e => e.vld)
-    val prb_rdy     =  prb_q.map(e => e.rdy)
-    val prb_llc_hit =  prb_q.map(e => e.vld & (e.addr === prb_llc_addr))
-    val prb_mmu_hit =  prb_q.map(e => e.vld & (e.addr === prb_mmu_addr))
+      // indication that llc doesn't inject the acquire
+      val prb_skp = prb_ack & (llc.c.bits.param =/= TLPermissions.NtoN)
 
-    val prb_inv     = ~prb_vld
-    val prb_llc_sel =  PrR(prb_inv)
-    val prb_mmu_sel =  Mux(prb_llc & prb_mmu & (prb_llc_addr === prb_mmu_addr),
-                           prb_llc_sel,
-                           PrL(prb_inv))
+      val prb_req_addr = u_mmu.llc_req_o.bits    (q.maBits - 1, 6)
+      val prb_mem_addr = u_mmu.mem_req_o.bits.pma(q.maBits - 1, 6)
+      val prb_llc_addr =       llc.a.bits.address(q.maBits - 1, 6)
 
-    val prb_clr_sel =  PrR(prb_rdy)
+      val prb_vld      = prb_q.map(e => e.vld)
+      val prb_rdy      = prb_q.map(e => e.vld &  e.mem   &  e.llc)
+      val prb_mem_sel  = prb_q.map(e => e.vld & (e.addr === prb_mem_addr))
+      val prb_llc_sel  = prb_q.map(e => e.vld & (e.addr === prb_llc_addr))
+      val prb_clr_sel  = PrR(prb_rdy)
 
-    val prb_llc_idx =  Mux(prb_llc_hit.orR, ISeqToUInt(prb_llc_hit), prb_llc_sel)
-    val prb_mmu_idx =  Mux(prb_mmu_hit.orR, ISeqToUInt(prb_mmu_hit), prb_mmu_sel)
+      val prb_idx_q    = dontTouch(Wire(UInt(q.ptwLvl.W)))
 
-    for (i <- 0 until q.ptwLvl) {
-      val set_llc = prb_llc & prb_llc_idx(i) & ~prb_vld(i)
-      val set_mmu = prb_mmu & prb_mmu_idx(i) & ~prb_vld(i)
-      val set_mem = prb_mem & RegEnable(prb_mmu_idx(i), prb_mmu)
-      val clr     = prb_clr & prb_clr_sel(i)
+      prb_idx_q := RegEnable(OrM(Seq(mmu_req_fire,
+                                     prb_ack),
+                                 Seq(1.U(q.ptwLvl.W),
+                                     ShL(prb_idx_q, 1))),
+                             mmu_req_fire |
+                             prb_ack)
 
-      prb_q(i).llc  := RegEnable(set_llc, 0.U(1.W), set_llc | clr)
-      prb_q(i).mmu  := RegEnable(set_mmu, 0.U(1.W), set_mmu | clr)
-      prb_q(i).mem  := RegEnable(set_mem, 0.U(1.W), set_mem | clr)
+      for (i <- 0 until q.ptwLvl) {
+        val set_vld = prb_req & prb_idx_q  (i)
+        val set_mem = prb_mem & prb_mem_sel(i)
+        val set_llc = prb_llc & prb_llc_sel(i)
+        val clr     = prb_skp & prb_idx_q  (i) |
+                      prb_clr & prb_clr_sel(i)
 
-      prb_q(i).src  := RegEnable(llc.a.bits.source, set_llc)
-      prb_q(i).data := RegEnable(mem.d.bits.data,   set_mem)
-      prb_q(i).addr := RegEnable(OrM(Seq(set_llc,
-                                         set_mmu),
-                                     Seq(prb_llc_addr,
-                                         prb_mmu_addr)),
-                                 set_llc |
-                                 set_mmu)
+        prb_q(i).vld  := RegEnable(set_vld,        0.U(1.W), set_vld | clr)
+        prb_q(i).mem  := RegEnable(set_mem & ~clr, 0.U(1.W), set_mem | clr)
+        prb_q(i).llc  := RegEnable(set_llc & ~clr, 0.U(1.W), set_llc | clr)
+
+        prb_q(i).addr := RegEnable(prb_req_addr,      set_vld)
+        prb_q(i).data := RegEnable(mem.d.bits.data,   set_mem)
+        prb_q(i).src  := RegEnable(llc.a.bits.source, set_llc)
+      }
+
+      prb_busy                 := prb_vld.orR
+      prb_d_llc_d.valid        := prb_rdy.orR
+
+      prb_d_llc_d.bits.opcode  := TLMessages.GrantData
+      prb_d_llc_d.bits.param   := TLPermissions.toB
+      prb_d_llc_d.bits.size    := 6.U
+      prb_d_llc_d.bits.source  := OrM(prb_clr_sel.asBools, prb_q.map(_.src))
+      prb_d_llc_d.bits.sink    := 0.U
+      prb_d_llc_d.bits.denied  := 0.U
+      prb_d_llc_d.bits.corrupt := 0.U
+      prb_d_llc_d.bits.data    := OrM(prb_clr_sel.asBools, prb_q.map(_.data))
+
+    } else {
+      prb_busy                 := 0.U
+
+      prb_d_llc_d.valid        := 0.U
+      prb_d_llc_d.bits         := DontCare
     }
-
-    prb_busy                 := prb_vld.orR
-    prb_d_llc_d.valid        := prb_rdy.orR
-
-    prb_d_llc_d.bits.opcode  := TLMessages.GrantData
-    prb_d_llc_d.bits.param   := TLPermissions.toB
-    prb_d_llc_d.bits.size    := 6.U
-    prb_d_llc_d.bits.source  := OrM(prb_clr_sel.asBools, prb_q.map(_.src))
-    prb_d_llc_d.bits.sink    := 0.U
-    prb_d_llc_d.bits.denied  := 0.U
-    prb_d_llc_d.bits.corrupt := 0.U
-    prb_d_llc_d.bits.data    := OrM(prb_clr_sel.asBools, prb_q.map(_.data))
   }
 }
 

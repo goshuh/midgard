@@ -16,6 +16,7 @@ object Main extends App {
     tlbWayNum = 4,
     ptcEn     = 0, // ?
     ptcNum    = 32,
+    prbEn     = 1,
     cfgBase   = 0x11000000,
     cfgSize   = 0x40
   )

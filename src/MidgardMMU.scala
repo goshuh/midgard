@@ -14,6 +14,7 @@ case class MidgardParam(
   tlbWayNum: Int,
   ptcEn:     Int,
   ptcNum:    Int,
+  prbEn:     Int,
   cfgBase:   BigInt,
   cfgSize:   BigInt,
   cfgInit:   BigInt = 0) {
