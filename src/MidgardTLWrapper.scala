@@ -1,15 +1,16 @@
 package midgard
 
+import chipsalliance.rocketchip.config._
 import chisel3._
 import chisel3.util._
-
-import chipsalliance.rocketchip.config._
-
 import freechips.rocketchip.diplomacy._
+import freechips.rocketchip.diplomaticobjectmodel.DiplomaticObjectModelAddressing
+import freechips.rocketchip.diplomaticobjectmodel.logicaltree.{LogicalModuleTree, LogicalTreeNode}
+import freechips.rocketchip.diplomaticobjectmodel.model.{OMComponent, OMDevice, OMInterrupt, OMMemoryRegion}
+import freechips.rocketchip.regmapper.{RegField, RegFieldDesc, RegisterRouter, RegisterRouterParams}
 import freechips.rocketchip.subsystem._
 import freechips.rocketchip.tilelink._
 import freechips.rocketchip.util._
-
 import midgard.misc._
 
 
@@ -26,9 +27,14 @@ class WithMidgard extends Config((site, here, up) => {
     ptcNum    = 32,
     prbEn     = 1,
     cfgBase   = 0x11000000,
-    cfgSize   = 0x40
-  )
+    cfgSize   = 0x40)
 })
+
+
+case class MidgardOM(
+  memoryRegions: Seq[OMMemoryRegion],
+  interrupts:    Seq[OMInterrupt],
+) extends OMDevice
 
 
 class MidgardPRBEntry(val p: MidgardParam, val s: Int) extends Bundle {
@@ -40,22 +46,20 @@ class MidgardPRBEntry(val p: MidgardParam, val s: Int) extends Bundle {
   val src  = UInt(s.W)
 }
 
-class MidgardTLWrapper(implicit p: Parameters) extends LazyModule()(p) {
+class MidgardTLWrapper(implicit p: Parameters)
+  extends RegisterRouter(
+    RegisterRouterParams(
+      name      = "midgard-mmu",
+      compat    =  Seq(),
+      base      =  p(MidgardKey).cfgBase,
+      beatBytes =  8
+    ))
+  with HasTLControlRegMap {
 
   // --------------------------
   // diplomacy
 
   val q = p(MidgardKey)
-
-  val cfg_node = TLManagerNode(
-                   Seq(TLSlavePortParameters.v1(
-                         Seq(TLSlaveParameters.v1(
-                               address         = Seq(AddressSet(q.cfgBase, q.cfgSize - 1)),
-                               regionType      = RegionType.UNCACHED,
-                               supportsGet     = TransferSizes(1, 8),
-                               supportsPutFull = TransferSizes(1, 8),
-                               fifoId          = Some(0))),
-                         beatBytes = 8)))
 
   val adp_node = TLAdapterNode(
                    managerFn = { mp =>
@@ -64,17 +68,42 @@ class MidgardTLWrapper(implicit p: Parameters) extends LazyModule()(p) {
                          m.v1copy(
                            supportsAcquireB = m.supportsGet,
                            supportsAcquireT = m.supportsPutFull,
-                           alwaysGrantsT    = true)},
+                           alwaysGrantsT    = true)
+                       },
                        // 1 data + 6 walk
-                       endSinkId = 7)},
+                       endSinkId = 7)
+                   },
                    clientFn = { cp =>
                      cp.v1copy(
                        clients = cp.clients.map { c =>
                          c.v1copy(
-                           supportsProbe = TransferSizes.none)})})
+                           supportsProbe = TransferSizes.none)
+                       })
+                   })
+
+  val logicalTreeNode = new LogicalTreeNode(() => Some(device)) {
+    def getOMComponents(resourceBindings: ResourceBindings, children: Seq[OMComponent]) = {
+      Seq(MidgardOM(
+            memoryRegions = DiplomaticObjectModelAddressing.getOMMemoryRegions("Midgard", resourceBindings, None),
+            interrupts    = DiplomaticObjectModelAddressing.describeGlobalInterrupts(device.describe(resourceBindings).name, resourceBindings)))
+    }
+  }
 
 
   lazy val module = new LazyModuleImp(this) {
+
+    // ------------------------
+    // mmio
+
+    val root = Seq(
+      0x00           -> Seq(RegField(64, RegFieldDesc( "ROOT",      "ROOT register in the PA space")))
+    )
+    val base = Seq.tabulate(q.ptwLvl)(n => {
+      0x08 * (n + 1) -> Seq(RegField(64, RegFieldDesc(s"BASE${n}", s"BASE${n} register in the MA space")))
+    })
+
+    regmap(root ++ base: _*)
+
 
     // --------------------------
     // inst
@@ -85,7 +114,7 @@ class MidgardTLWrapper(implicit p: Parameters) extends LazyModule()(p) {
     // --------------------------
     // cfg
 
-    val cfg = cfg_node.in.head._1
+    val cfg = controlNode.in.head._1
 
     // a
     cfg.a.ready               :=  u_mmu.cfg_req_i.ready
@@ -453,9 +482,11 @@ trait HasMidgard { this: BaseSubsystem =>
   val u_mmu = LazyModule(new MidgardTLWrapper())
 
   // width modification
-  u_mmu.cfg_node := cbus.coupleTo("u_mmu") {
+  u_mmu.node := cbus.coupleTo("u_mmu") {
     TLFragmenter(8, 64) := _
   }
 
   val u_mmu_node = u_mmu.adp_node
+
+  LogicalModuleTree.add(logicalTreeNode, u_mmu.logicalTreeNode)
 }
