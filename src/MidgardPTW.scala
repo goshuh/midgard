@@ -232,7 +232,7 @@ class MidgardPTW(p: MidgardParam) extends MultiIOModule {
                     llc_resp_i.bits.pte)
 
   val llc_pte_v   = llc_pte(0)
-  val llc_pte_b   = llc_pte(1)
+  val llc_pte_b   = llc_pte(3, 1).orR()
 
   val llc_pte_mem = llc_pte_v & ~llc_pte_b & ~lvl_bot
   val llc_pte_vld = llc_pte_v &  llc_pte_b & ~lvl_inv
@@ -297,7 +297,7 @@ class MidgardPTW(p: MidgardParam) extends MultiIOModule {
   // mem
 
   val mem_pte_v   = mem_resp_i.bits.pte(0)
-  val mem_pte_b   = mem_resp_i.bits.pte(1)
+  val mem_pte_b   = mem_resp_i.bits.pte(3, 1).orR()
 
   val mem_pte_vld = mem_pte_v &  mem_pte_b & ~lvl_inv
   val mem_pte_inv = mem_pte_v & ~mem_pte_b &  lvl_bot |

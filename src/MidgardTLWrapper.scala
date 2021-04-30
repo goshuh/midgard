@@ -18,7 +18,7 @@ case object MidgardKey extends Field[MidgardParam]
 
 class WithMidgard extends Config((site, here, up) => {
   case MidgardKey => MidgardParam(
-    maBits    = 32,
+    maBits    = 48,
     paBits    = 32,
     tlbEn     = 1,
     tlbSetNum = 1024,
@@ -52,8 +52,7 @@ class MidgardTLWrapper(implicit p: Parameters)
       name      = "midgard-mmu",
       compat    =  Seq(),
       base      =  p(MidgardKey).cfgBase,
-      beatBytes =  8
-    ))
+      beatBytes =  8))
   with HasTLControlRegMap {
 
   // --------------------------
@@ -96,10 +95,12 @@ class MidgardTLWrapper(implicit p: Parameters)
     // mmio
 
     val root = Seq(
-      0x00           -> Seq(RegField(64, RegFieldDesc( "ROOT",      "ROOT register in the PA space")))
+      0x00 ->
+        Seq(RegField(64, RegFieldDesc( "ROOT",      "ROOT register in the PA space")))
     )
     val base = Seq.tabulate(q.ptwLvl)(n => {
-      0x08 * (n + 1) -> Seq(RegField(64, RegFieldDesc(s"BASE${n}", s"BASE${n} register in the MA space")))
+      0x08 * (n + 1) ->
+        Seq(RegField(64, RegFieldDesc(s"BASE${n}", s"BASE${n} register in the MA space")))
     })
 
     regmap(root ++ base: _*)
@@ -486,6 +487,7 @@ trait HasMidgard { this: BaseSubsystem =>
     TLFragmenter(8, 64) := _
   }
 
+  // export
   val u_mmu_node = u_mmu.adp_node
 
   LogicalModuleTree.add(logicalTreeNode, u_mmu.logicalTreeNode)
