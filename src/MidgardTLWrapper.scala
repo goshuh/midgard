@@ -21,7 +21,7 @@ class WithMidgard extends Config((site, here, up) => {
     maBits    = 48,
     paBits    = 32,
     tlbEn     = 1,
-    tlbSetNum = 1024,
+    tlbSetNum = 32,
     tlbWayNum = 4,
     ptcEn     = 0,
     ptcNum    = 32,
@@ -41,6 +41,7 @@ class MidgardPRBEntry(val p: MidgardParam, val s: Int) extends Bundle {
   val vld  = UInt(1.W)
   val mem  = UInt(1.W)
   val llc  = UInt(1.W)
+  val nop  = UInt(1.W)
   val addr = UInt((p.maBits - 6).W)
   val data = UInt(512.W)
   val src  = UInt(s.W)
@@ -67,7 +68,9 @@ class MidgardTLWrapper(implicit p: Parameters)
                          m.v1copy(
                            supportsAcquireB = m.supportsGet,
                            supportsAcquireT = m.supportsPutFull,
-                           alwaysGrantsT    = true)
+                           alwaysGrantsT    = true,
+                           mayDenyGet       = true
+                         )
                        },
                        // 1 data + 6 walk
                        endSinkId = 7)
@@ -274,15 +277,19 @@ class MidgardTLWrapper(implicit p: Parameters)
                                   llc_c_llc_d_q.valid |
                                   llc_a_llc_d_q.valid
 
-    val sink_q = dontTouch(Reg(UInt(2.W)))
+    val sink_buf_q = dontTouch(Wire(UInt(8.W)))
+    val sink_sel_q = dontTouch(Wire(UInt(3.W)))
+
+    val sink_buf_vld =     sink_buf_q.orR
+    val sink_sel_dec = Dec(sink_sel_q)
 
     llc.d.bits                :=  Mux(mem_d_llc_d_q.valid, mem_d_llc_d_q.bits,
                                   Mux(prb_d_llc_d_q.valid, prb_d_llc_d_q.bits,
                                   Mux(llc_c_llc_d_q.valid, llc_c_llc_d_q.bits,
                                                            llc_a_llc_d_q.bits)))
-    llc.d.bits.sink           :=  sink_q
+    llc.d.bits.sink           :=  sink_sel_q
 
-    mem_d_llc_d_q.ready       :=  llc.d.ready
+    mem_d_llc_d_q.ready       :=  llc.d.ready & sink_buf_vld
     prb_d_llc_d_q.ready       :=  mem_d_llc_d_q.ready & ~mem_d_llc_d_q.valid
     llc_c_llc_d_q.ready       :=  prb_d_llc_d_q.ready & ~prb_d_llc_d_q.valid
     llc_a_llc_d_q.ready       :=  llc_c_llc_d_q.ready & ~llc_c_llc_d_q.valid
@@ -290,15 +297,20 @@ class MidgardTLWrapper(implicit p: Parameters)
     // llc e
     llc.e.ready               :=  1.U
 
-    val sink_inc = llc.d.fire() & ((llc.d.bits.opcode === TLMessages.Grant) |
+    val sink_set = llc.e.fire()
+    val sink_clr = llc.d.fire() & ((llc.d.bits.opcode === TLMessages.Grant) |
                                    (llc.d.bits.opcode === TLMessages.GrantData))
-    val sink_dec = llc.e.fire()
 
-    sink_q := RegEnable(sink_q + Mux(sink_inc & ~sink_dec,
-                                     1.U(2.W),
-                                     3.U(2.W)),
-                        sink_inc |
-                        sink_dec)
+    sink_buf_q := RegEnable(sink_buf_q & ~Mux(sink_clr, sink_sel_dec,                 0.U) |
+                                          Mux(sink_set, Pad(Dec(llc.e.bits.sink), 8), 0.U),
+                            255.U(8.W),
+                            sink_set | sink_clr)
+
+    sink_sel_q := RegEnable(Mux(sink_buf_vld, Enc(PrR(sink_buf_q & ~sink_sel_dec)),
+                                              Pad(llc.e.bits.sink, 3)),
+                            0.U(3.W),
+                            sink_buf_vld & sink_clr |
+                           ~sink_buf_vld & sink_set)
 
     // mmu
     //   1. from llc c: releaseData
@@ -441,8 +453,15 @@ class MidgardTLWrapper(implicit p: Parameters)
                              prb_ack)
 
       for (i <- 0 until q.ptwLvl) {
+        // huge page
+        val set_nop = mmu_resp_fire &
+                      prb_q(i).vld &
+                      prb_q(i).llc &
+                     ~prb_q(i).mem
+
         val set_vld = prb_req & prb_idx_q  (i)
-        val set_mem = prb_mem & prb_mem_sel(i)
+        val set_mem = prb_mem & prb_mem_sel(i) |
+                      set_nop
         val set_llc = prb_llc & prb_llc_sel(i)
         val clr     = prb_skp & prb_idx_q  (i) |
                       prb_clr & prb_clr_sel(i)
@@ -450,6 +469,7 @@ class MidgardTLWrapper(implicit p: Parameters)
         prb_q(i).vld  := RegEnable(set_vld,        0.U(1.W), set_vld | clr)
         prb_q(i).mem  := RegEnable(set_mem & ~clr, 0.U(1.W), set_mem | clr)
         prb_q(i).llc  := RegEnable(set_llc & ~clr, 0.U(1.W), set_llc | clr)
+        prb_q(i).nop  := RegEnable(set_nop & ~clr, 0.U(1.W), set_nop | clr)
 
         prb_q(i).addr := RegEnable(prb_req_addr,      set_vld)
         prb_q(i).data := RegEnable(mem.d.bits.data,   set_mem)
@@ -459,13 +479,15 @@ class MidgardTLWrapper(implicit p: Parameters)
       prb_busy                 := prb_vld.orR
       prb_d_llc_d.valid        := prb_rdy.orR
 
+      val nop = OrM(prb_clr_sel.asBools, prb_q.map(_.nop))
+
       prb_d_llc_d.bits.opcode  := TLMessages.GrantData
       prb_d_llc_d.bits.param   := TLPermissions.toB
       prb_d_llc_d.bits.size    := 6.U
       prb_d_llc_d.bits.source  := OrM(prb_clr_sel.asBools, prb_q.map(_.src))
       prb_d_llc_d.bits.sink    := 0.U
-      prb_d_llc_d.bits.denied  := 0.U
-      prb_d_llc_d.bits.corrupt := 0.U
+      prb_d_llc_d.bits.denied  := nop
+      prb_d_llc_d.bits.corrupt := nop
       prb_d_llc_d.bits.data    := OrM(prb_clr_sel.asBools, prb_q.map(_.data))
 
     } else {
@@ -484,7 +506,7 @@ trait HasMidgard { this: BaseSubsystem =>
 
   // width modification
   u_mmu.node := cbus.coupleTo("u_mmu") {
-    TLFragmenter(8, 64) := _
+    TLFragmenter(cbus) := _
   }
 
   // export

@@ -142,13 +142,18 @@ class MidgardMMU(p: MidgardParam) extends MultiIOModule {
   val mmu_req_qual  = dontTouch(Wire(mmu_req_i.cloneType))
   val mmu_resp_qual = dontTouch(Wire(mmu_resp_o.cloneType))
 
+  // any change in cfg clears tlb and ptc (if any)
+  val clr_qual = RegNext(cfg_sel.orR)
+
   u_tlb.tlb_req_i  <> mmu_req_qual
   u_tlb.ptw_resp_i <> u_ptw.ptw_resp_o
+  u_tlb.tlb_clr_i  := clr_qual
 
   u_ptw.ptw_req_i  <> u_tlb.ptw_req_o
   u_ptw.llc_resp_i <> llc_resp_i
   u_ptw.mem_resp_i <> mem_resp_i
   u_ptw.cfg_i      := cfg_q
+  u_ptw.ptc_clr_i  := clr_qual
 
   // output
   mmu_resp_o <> mmu_resp_qual

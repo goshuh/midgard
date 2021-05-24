@@ -33,7 +33,7 @@ object MidgardTLBEntry {
     tlb.err := e
     tlb.lvl := l
     tlb.mpn := m
-    tlb.ppn := r(p.paBits - 1, 12)
+    tlb.ppn := r(p.paBits - 3, 10)
 
     tlb
   }
@@ -51,6 +51,8 @@ class MidgardTLB(p: MidgardParam) extends MultiIOModule {
   val ptw_req_o  = IO(        Decoupled(UInt((p.maBits - 12).W)))
   val ptw_resp_i = IO(Flipped(Decoupled(new MidgardTLBEntry(p))))
 
+  val tlb_clr_i  = IO(            Input(UInt(1.W)))
+
 
   // --------------------------
   // main
@@ -63,7 +65,9 @@ class MidgardTLB(p: MidgardParam) extends MultiIOModule {
 
   // common
   val rst_done = dontTouch(Wire(UInt(1.W)))
+  val clr_pend = dontTouch(Wire(UInt(1.W)))
 
+  val tlb_idle = dontTouch(Wire(UInt(1.W)))
   val tlb_busy = dontTouch(Wire(UInt(1.W)))
   val tlb_data =           Wire(new MidgardTLBEntry(p))
 
@@ -76,8 +80,17 @@ class MidgardTLB(p: MidgardParam) extends MultiIOModule {
     // init reset
     val rst_q = dontTouch(RegInit(UInt((p.tlbTagLo + 1).W), 0.U((p.tlbTagLo + 1).W)))
 
-    when (~rst_done) {
-      rst_q := rst_q + 1.U((p.tlbTagLo + 1).W)
+    val clr_pend_q = dontTouch(Wire(UInt(1.W)))
+
+    val clr_vld_nq = clr_pend_q | rst_done & tlb_clr_i
+    val clr_vld    = clr_vld_nq & tlb_idle
+
+    clr_pend_q := RegEnable(~tlb_idle, 0.U(1.W), clr_vld_nq)
+
+    when (~rst_done | clr_vld) {
+      rst_q := Mux(clr_vld,
+                   0.U,
+                   rst_q + 1.U((p.tlbTagLo + 1).W))
     }
 
     val ren_s0   = tlb_req_fire
@@ -114,10 +127,6 @@ class MidgardTLB(p: MidgardParam) extends MultiIOModule {
           port := wdata
         }
       }
-
-      when (wen & wsel(i) & rst_done) {
-        printf(p"TLB w ${Hexadecimal(Cat(wdata.mpn, waddr))}: s${Hexadecimal(waddr)} w${i}: ${Hexadecimal(wdata.err)} ${Hexadecimal(wdata.ppn)}\n")
-      }
     }
 
     // hit check
@@ -151,6 +160,7 @@ class MidgardTLB(p: MidgardParam) extends MultiIOModule {
 
     // output
     rst_done := rst_q(p.tlbTagLo)
+    clr_pend := clr_pend_q
 
     tlb_busy := ren_s1_q |  ren_s2_q
     tlb_data := OrM(hit_way_s2,
@@ -160,18 +170,10 @@ class MidgardTLB(p: MidgardParam) extends MultiIOModule {
     mis_s2   := ren_s2_q & ~hit_raw_s2
     mpn_s2   := mpn_s2_q
 
-    when (ren_s2_q) {
-      when (hit_raw_s2) {
-        assert(PrR(hit_way_s2) === hit_way_s2)
-        printf(p"TLB h ${Hexadecimal(mpn_s2_q)}: s${Hexadecimal(mpn_set_s2)} w${Hexadecimal(Enc(hit_way_s2))}: ${Hexadecimal(tlb_data.err)} ${Hexadecimal(tlb_data.ppn)}\n")
-      } .otherwise {
-        printf(p"TLB m ${Hexadecimal(mpn_s2_q)}\n")
-      }
-    }
-
   } else {
 
     rst_done := 1.U
+    clr_pend := 0.U
 
     tlb_busy := 0.U
     tlb_data := 0.U.asTypeOf(new MidgardTLBEntry(p))
@@ -215,12 +217,15 @@ class MidgardTLB(p: MidgardParam) extends MultiIOModule {
   // --------------------------
   // output
 
-  // TODO: pipeline
-  tlb_req_i.ready  := rst_done   &
-                     ~tlb_busy   &
-                     ~ptw_pend_q &
-                     ~ptw_busy_q &
-                     ~tlb_resp_o.valid
+  tlb_idle := rst_done   &
+             ~tlb_busy   &
+             ~ptw_pend_q &
+             ~ptw_busy_q &
+             ~tlb_resp_o.valid
+
+  tlb_req_i.ready  := tlb_idle  &
+                     ~tlb_clr_i &
+                     ~clr_pend
 
   tlb_resp_o.valid := RegEnable(tlb_resp_vld, 0.U(1.W), tlb_resp_vld | tlb_resp_fire)
   tlb_resp_o.bits  := RegEnable(tlb_resp_nxt,           tlb_resp_vld)
