@@ -1,43 +1,34 @@
 package midgard
 
-import chisel3._
-import chisel3.util._
+import  scala.annotation.tailrec
+
+import  chisel3._
+import  chisel3.util._
+import  chisel3.internal.firrtl._
 
 
-package object misc {
+package object util {
 
-  // log2
-  def log2(i: Int): Int = {
-    BigInt(i - 1).bitLength
+  // see: https://github.com/chipsalliance/chisel3/issues/1743
+
+  def Any(d: UInt): Bool = {
+    d.orR()
+  }
+  def All(d: UInt): Bool = {
+    d.andR()
+  }
+  def Non(d: UInt): Bool = {
+    d === 0.U
   }
 
-
-  def Pad(d: UInt, n: Int): UInt = {
-    val w = d.getWidth
-
-    if (w >= n)
-      d(n - 1, 0)
-    else
-      Cat(0.U((n - w).W),
-          d)
+  def Any(ds: Bool*): Bool = {
+    Any(Cat(ds))
   }
-
-  def OrM(s: Seq[UInt], a: Seq[UInt]): UInt = {
-    val x = s.size
-    val y = a.size
-
-    require(x == y, s"OrM: unmatched widths: ${x} vs. ${y}")
-
-    val m = a.map(_.getWidth).max
-
-    def mux(n: Int): UInt = {
-      if (n >= x)
-        0.U(m.W)
-      else
-        Mux(s(n), Pad(a(n), m), 0.U(m.W)) | mux(n + 1)
-    }
-
-    mux(0)
+  def All(ds: Bool*): Bool = {
+    All(Cat(ds))
+  }
+  def Non(ds: Bool*): Bool = {
+    Non(Cat(ds))
   }
 
   def ShL(d: UInt, n: Int): UInt = {
@@ -48,10 +39,8 @@ package object misc {
     else if (n >= w)
       0.U(w.W)
     else
-      Cat(d(w - n - 1, 0),
-          0.U(n.W))
+      d(w - n - 1, 0) ## 0.U(n.W)
   }
-
   def ShR(d: UInt, n: Int): UInt = {
     val w = d.getWidth
 
@@ -60,8 +49,7 @@ package object misc {
     else if (n >= w)
       0.U(w.W)
     else
-      Cat(0.U(n.W),
-          d(w - 1, n))
+      0.U(n.W) ## d(w - 1, n)
   }
 
   def RoL(d: UInt, n: Int): UInt = {
@@ -71,10 +59,8 @@ package object misc {
     if (m == 0)
       d
     else
-      Cat(d(w - m - 1, 0),
-          d(w - 1, w - m))
+      d(w - m - 1, 0) ## d(w - 1, w - m)
   }
-
   def RoR(d: UInt, n: Int): UInt = {
     val w = d.getWidth
     val m = n % w
@@ -82,10 +68,10 @@ package object misc {
     if (m == 0)
       d
     else
-      Cat(d(m - 1, 0),
-          d(w - 1, m))
+      d(m - 1, 0) ## d(w - 1, m)
   }
 
+  @tailrec
   private def shf(f: (UInt, Int) => UInt, d: UInt, s: UInt, n: Int): UInt = {
     if (n >= s.getWidth)
       d
@@ -95,130 +81,127 @@ package object misc {
                  d),
           s, n + 1)
   }
-
   def BSL(d: UInt, s: UInt): UInt = {
     shf(ShL, d, s, 0)
   }
-
   def BSR(d: UInt, s: UInt): UInt = {
     shf(ShR, d, s, 0)
   }
-
   def BRL(d: UInt, s: UInt): UInt = {
     shf(RoL, d, s, 0)
   }
-
   def BRR(d: UInt, s: UInt): UInt = {
     shf(RoR, d, s, 0)
   }
 
-  def Ext(d: UInt, n: Int): UInt = {
-    Seq.fill(n)({
-      d.asBools
-    }).reduce(_ ++ _)
+  def Rep(d: UInt, n: Int ): UInt = {
+    Cat(Seq.fill(n)(d))
   }
-
-  def Sel(s: UInt, d: UInt): UInt = {
-    require(s.getWidth == 1)
-
-    Ext(s, d.getWidth) & d
-  }
-
-  def Spl(d: UInt, n: Int): Seq[UInt] = {
+  def Div(d: UInt, n: Int ): Seq[UInt] = {
     val s = (d.getWidth + n - 1) / n
-    val t =  Pad(d, s * n)
+    val t =  d.pad(s * n)
 
-    Seq.tabulate(s)(i => {
+    Seq.tabulate(s) { i =>
       t(i * n + n - 1, i * n)
-    })
+    }
   }
 
+  def EnQ[T <: Data](e: Bool, d: T): T = {
+    Mux(e, d, 0.U.asTypeOf(d))
+  }
+  def NeQ[T <: Data](e: Bool, d: T): T = {
+    Mux(e, 0.U.asTypeOf(d), d)
+  }
+
+  @tailrec
   private def orx(f: (UInt, Int) => UInt, d: UInt, n: Int): UInt = {
     if (n >= d.getWidth)
       d
     else
       orx(f, d | f(d, n), n << 1)
   }
-
   def OrL(d: UInt): UInt = {
     orx(ShL, d, 1)
   }
-
   def OrR(d: UInt): UInt = {
     orx(ShR, d, 1)
   }
 
-  private def tap(n: Int): Seq[Int] = {
-    n match {
-      case  4 => Seq( 2,  3)
-      case  8 => Seq( 3,  4,  5,  7)
-      case 16 => Seq(10, 12, 13, 15)
-      case 32 => Seq(27, 28, 29, 30)
-      case 48 => Seq(38, 40, 43, 47)
-      case 64 => Seq(59, 60, 62, 63)
-      case  _ => {
-        require(false, s"tap: invalid width: ${n}")
-        Seq()
-      }
+  private def pri(f: UInt => UInt, g: (UInt, Int) => UInt, d: UInt): UInt = {
+    val o = f(d)
+
+    o ^ g(o, 1)
+  }
+  def PrL(d: UInt): UInt = {
+    pri(OrR, ShR, d)
+  }
+  def PrR(d: UInt): UInt = {
+    pri(OrL, ShL, d)
+  }
+
+  def OHp(d: UInt, z: Bool): Bool = {
+    z && Non(d) || d === PrL(d)
+  }
+
+  def Dec = UIntToOH
+  def Enc = OHToUInt
+  def OrM = Mux1H
+
+
+  case class pair[T1, +T2](a: T1, b: T2)
+
+  implicit class withIInt(d: Int) {
+    def :+(a: Int): pair[Int, Int] = {
+      pair(d + a, d)
+    }
+    def :-(a: Int): pair[Int, Int] = {
+      pair(d, d - a)
+    }
+    def :=(a: Int): pair[Int, Int] = {
+      pair(d, a)
     }
   }
 
-  def Ran(d: UInt): UInt = {
-    val w = d.getWidth
-
-    Cat(d(w - 2, 0),
-        tap(w).map(d(_)).xorR)
-  }
-
-  def Enc(d: UInt, b: Int = 0): UInt = {
-    val w = d.getWidth
-    val x = log2(w)
-
-    OrM(d.asBools,
-        Seq.tabulate(w)(n => {
-          (n + b).U(x.W)
-        }))
-  }
-
-  def Dec(d: UInt): UInt = {
-    val w = 1 << d.getWidth
-
-    BSL(1.U(w.W), d)
-  }
-
-  private def pri(s: String, f: UInt => UInt, g: (UInt, Int) => UInt, d: UInt, i: Int = 1): UInt = {
-    i match {
-      case 1 =>
-        val o = f(d)
-        o ^ g(o, 1)
-      case _ =>
-        require(false, s"${s}: invalid index: ${i}")
-        UInt()
+  implicit class withBits[T <: Bits](d: T) {
+    def apply(p: pair[Int, Int]): UInt = {
+      d(p.a   - 1, p.b)
+    }
+    def apply(p: Width): UInt = {
+      d(p.get - 1, 0)
     }
   }
 
-  def PrL(d: UInt, i: Int = 1): UInt = {
-    pri("PrL", OrR, ShR, d, i)
+  implicit class withBool(d: Bool) {
+    def ??[T <: Data](t: T): pair[Bool, T] = {
+      pair(d, t)
+    }
+    def ->(c: Bool): Bool = {
+      !(d && !c)
+    }
   }
 
-  def PrR(d: UInt, i: Int = 1): UInt = {
-    pri("PrR", OrL, ShL, d, i)
+  implicit class withData[T <: Data](d: T) {
+    def ::[S <: Data](p: pair[Bool, S]): T = {
+      Mux(p.a, p.b.asInstanceOf[T], d)
+    }
   }
 
-
-  import scala.language.implicitConversions
-
-  implicit def BitsToUInt(i: Bits): UInt = {
-    i.asUInt
+  implicit class withDecoupled[T <: Data](d: DecoupledIO[T]) {
+    def <=(s: DecoupledIO[T]): Unit = {
+      d.valid := RegEnable(s.valid || d.valid && !d.ready,
+                           false.B,
+                           s.valid || d.valid)
+      d.bits  := RegEnable(s.bits,
+                           s.valid)
+    }
   }
 
-  implicit def UIntToBool(i: UInt): Bool = {
-    require(i.getWidth == 1)
-
-    i(0).asBool
+  // any explicit calls are bugs
+  implicit def VecToUInt[T <: Data](v: Vec[T]): UInt = {
+    v.asUInt()
   }
 
-  implicit def ISeqToUInt(i: Seq[UInt]): UInt = {
-    VecInit(i).asUInt
+  implicit def SeqToUInt[T <: Data](v: Seq[T]): UInt = {
+    Cat(v.map(_.asUInt()).reverse)
   }
 }
