@@ -169,7 +169,7 @@ class PTW(P: Param) extends Module {
   val llc_hit     = llc_resp &&  llc_resp_i.bits.hit || ptc_hit
   val llc_mis     = llc_resp && !llc_resp_i.bits.hit
 
-  val llc_pte     = OrM(Dec(ptw_mdn_q(P.clWid := 3)),
+  val llc_pte     = OrM(Dec(ptw_mdn_q((P.clWid - 3).W)),
                         Div(ptc_hit ?? ptc_resp_i.bits.data ::
                                        llc_resp_i.bits.data, 64)).asTypeOf(new PTE(P))
 
@@ -187,7 +187,7 @@ class PTW(P: Param) extends Module {
   // error cases
   // 1. invalid pte
   // 2. huge page encountered at an invalid level
-  val llc_hit_err = llc_pte_vld &&  llc_pte_blk &&  ptw_lvl_inv
+  val llc_hit_err = llc_pte_vld &&  llc_pte_blk &&  ptw_lvl_inv ||
                    !llc_pte_vld
 
   val llc_hit_end = llc_hit_bot ||  llc_hit_blk ||  llc_hit_err
@@ -208,7 +208,7 @@ class PTW(P: Param) extends Module {
   val mrq_hit     = mrq_resp && !mrq_resp_i.bits.err
   val mrq_err     = mrq_resp &&  mrq_resp_i.bits.err
 
-  val mrq_pte     = OrM(Dec(ptw_pdn_q(P.clWid := 3)),
+  val mrq_pte     = OrM(Dec(ptw_pdn_q((P.clWid - 3).W)),
                         Div(mrq_resp_i.bits.data, 64)).asTypeOf(new PTE(P))
 
   val mrq_pte_vld = mrq_pte.v
@@ -217,7 +217,7 @@ class PTW(P: Param) extends Module {
 
   val mrq_hit_bot = mrq_pte_vld &&                  ptw_lvl_bot
   val mrq_hit_blk = mrq_pte_vld &&  mrq_pte_blk && !ptw_lvl_inv
-  val mrq_hit_err = mrq_pte_vld &&  mrq_pte_blk &&  ptw_lvl_inv
+  val mrq_hit_err = mrq_pte_vld &&  mrq_pte_blk &&  ptw_lvl_inv ||
                    !mrq_pte_vld
 
   val mrq_hit_end = mrq_hit_bot ||  mrq_hit_blk ||  mrq_hit_err
@@ -234,8 +234,8 @@ class PTW(P: Param) extends Module {
   ptw_dir_q := RegEnable(mrq_init,           mlb_req || mrq_init)
   ptw_mpn_q := RegEnable(mlb_req_i.bits.mpn, mlb_req)
 
-  val ptw_mpn = ptw_vld_q ?? mlb_req_i.bits.mpn :: ptw_mpn_q
-  val ptw_pte = llc_vld   ?? llc_pte            :: mrq_pte
+  val ptw_mpn = ptw_vld_q ?? ptw_mpn_q :: mlb_req_i.bits.mpn
+  val ptw_pte = llc_vld   ?? llc_pte   :: mrq_pte
 
   // level can either increase (ror) or decrease (rol)
   val ptw_lvl_ror = llc_step && !llc_done && !ptw_lvl_top
@@ -267,6 +267,7 @@ class PTW(P: Param) extends Module {
                          ptw_lvl_en)
 
   ptw_top_q := RegEnable(ptw_mdn_nxt(P.mdnBits := 9) === ctl_i(1)(P.maBits := 12),
+                         false.B,
                          ptw_lvl_en)
 
   // index bits in lower levels

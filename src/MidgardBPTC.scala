@@ -121,7 +121,7 @@ class PTC(P: Param) extends Module {
         val upd = llc_req_wnr &&  hit_way(j)
 
         if (P.ptcWays(i) <= 1)
-          rpl := true.B
+          rpl := rpl_vld
         else
           rpl := rpl_vld && (rpl_q(log2Ceil(P.ptcWays(i)).W) === j.U)
 

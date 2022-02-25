@@ -108,8 +108,9 @@ class MRQ(val P: Param) extends Module {
 
   val mrq_set_raw  = PrR(mrq_inv)
   val mrq_clr_raw  = Dec(mem_resp_i.bits.idx)
-  val mrq_set      = EnQ(req_vld,  mrq_set_raw)
-  val mrq_clr      = EnQ(mem_resp, mrq_clr_raw)
+  val mrq_set      = EnQ(req_vld,   mrq_set_raw)
+  val mrq_clr      = EnQ(mem_resp,  mrq_clr_raw)
+  val mrq_set_mul  = Any(mrq_inv & ~mrq_set_raw)
 
   // starting state
   val mrq_set_nxt  = req_fwd_any ?? mrq_fsm_idle    ::
@@ -360,8 +361,9 @@ class MRQ(val P: Param) extends Module {
                          !mrq_clr_mux.src(i)
   }
 
-  ptw_req_i.ready  := arb_rdy && !(ptc_req_i.valid &&  arb_q)
-  ptc_req_i.ready  := arb_rdy && !(ptw_req_i.valid && !arb_q)
+  // forward progress
+  ptw_req_i.ready  := arb_rdy && !(ptc_req_i.valid && mrq_set_mul && arb_q)
+  ptc_req_i.ready  := arb_rdy && !(ptw_req_i.valid &&               !arb_q) && mrq_set_mul
 
   ptw_ack_o        := fwd_idx
   ptc_ack_o        := fwd_idx
