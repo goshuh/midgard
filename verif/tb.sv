@@ -52,53 +52,64 @@ module tb;
     //
     // connections
 
-    tb_intf
+    tb_ctl_intf
     m_vif (.clock (clock),
            .reset (reset));
 
-    tb_intf_mem
+    tb_llc_intf
     m_llc (.clock (clock),
            .reset (reset));
 
-    tb_intf_mem
+    tb_mem_intf
     m_mem (.clock (clock),
            .reset (reset));
 
-    MidgardMMU
+    MMU
     u_dut (.clock                (clock                     ),
            .reset                (reset                     ),
-           .mmu_req_i_ready      (m_vif.mmu_req_i_ready     ),
-           .mmu_req_i_valid      (m_vif.mmu_req_i_valid     ),
-           .mmu_req_i_bits       (m_vif.mmu_req_i_bits      ),
-           .mmu_resp_o_ready     (m_vif.mmu_resp_o_ready    ),
-           .mmu_resp_o_valid     (m_vif.mmu_resp_o_valid    ),
-           .mmu_resp_o_bits_err  (m_vif.mmu_resp_o_bits_err ),
-           .mmu_resp_o_bits_ppn  (m_vif.mmu_resp_o_bits_ppn ),
-           .llc_req_o_ready      (m_llc.mem_req_o_ready     ),
-           .llc_req_o_valid      (m_llc.mem_req_o_valid     ),
-           .llc_req_o_bits       (m_llc.mem_req_o_bits_pma  ),
-           .llc_resp_i_ready     (m_llc.mem_resp_i_ready    ),
-           .llc_resp_i_valid     (m_llc.mem_resp_i_valid    ),
-           .llc_resp_i_bits_hit  (m_llc.mem_resp_i_bits_err ),
-           .llc_resp_i_bits_pte  (m_llc.mem_resp_i_bits_pte ),
+           .llc_req_i_ready      (m_llc.llc_req_i_ready     ),
+           .llc_req_i_valid      (m_llc.llc_req_i_valid     ),
+           .llc_req_i_bits_idx   (m_llc.llc_req_i_bits_idx  ),
+           .llc_req_i_bits_rnw   (m_llc.llc_req_i_bits_rnw  ),
+           .llc_req_i_bits_mcn   (m_llc.llc_req_i_bits_mcn  ),
+           .llc_req_i_bits_pcn   (m_llc.llc_req_i_bits_pcn  ),
+           .llc_req_i_bits_data  (m_llc.llc_req_i_bits_data ),
+           .llc_resp_o_ready     (m_llc.llc_resp_o_ready    ),
+           .llc_resp_o_valid     (m_llc.llc_resp_o_valid    ),
+           .llc_resp_o_bits_idx  (m_llc.llc_resp_o_bits_idx ),
+           .llc_resp_o_bits_err  (m_llc.llc_resp_o_bits_err ),
+           .llc_resp_o_bits_rnw  (m_llc.llc_resp_o_bits_rnw ),
+           .llc_resp_o_bits_data (m_llc.llc_resp_o_bits_data),
+           .llc_req_o_ready      (m_llc.llc_req_o_ready     ),
+           .llc_req_o_valid      (m_llc.llc_req_o_valid     ),
+           .llc_req_o_bits_mcn   (m_llc.llc_req_o_bits_mcn  ),
+           .llc_resp_i_ready     (m_llc.llc_resp_i_ready    ),
+           .llc_resp_i_valid     (m_llc.llc_resp_i_valid    ),
+           .llc_resp_i_bits_hit  (m_llc.llc_resp_i_bits_hit ),
+           .llc_resp_i_bits_data (m_llc.llc_resp_i_bits_data),
            .mem_req_o_ready      (m_mem.mem_req_o_ready     ),
            .mem_req_o_valid      (m_mem.mem_req_o_valid     ),
-           .mem_req_o_bits_pma   (m_mem.mem_req_o_bits_pma  ),
-           .mem_req_o_bits_ppa   (m_mem.mem_req_o_bits_ppa  ),
+           .mem_req_o_bits_idx   (m_mem.mem_req_o_bits_idx  ),
+           .mem_req_o_bits_rnw   (m_mem.mem_req_o_bits_rnw  ),
+           .mem_req_o_bits_mcn   (m_mem.mem_req_o_bits_mcn  ),
+           .mem_req_o_bits_pcn   (m_mem.mem_req_o_bits_pcn  ),
+           .mem_req_o_bits_data  (m_mem.mem_req_o_bits_data ),
            .mem_resp_i_ready     (m_mem.mem_resp_i_ready    ),
            .mem_resp_i_valid     (m_mem.mem_resp_i_valid    ),
+           .mem_resp_i_bits_idx  (m_mem.mem_resp_i_bits_idx ),
            .mem_resp_i_bits_err  (m_mem.mem_resp_i_bits_err ),
-           .mem_resp_i_bits_pte  (m_mem.mem_resp_i_bits_pte ),
-           .cfg_req_i_ready      (m_vif.cfg_req_i_ready     ),
-           .cfg_req_i_valid      (m_vif.cfg_req_i_valid     ),
-           .cfg_req_i_bits_rnw   (m_vif.cfg_req_i_bits_rnw  ),
-           .cfg_req_i_bits_addr  (m_vif.cfg_req_i_bits_addr ),
-           .cfg_req_i_bits_data  (m_vif.cfg_req_i_bits_data ),
-           .cfg_resp_o_ready     (m_vif.cfg_resp_o_ready    ),
-           .cfg_resp_o_valid     (m_vif.cfg_resp_o_valid    ),
-           .cfg_resp_o_bits_inv  (m_vif.cfg_resp_o_bits_inv ),
-           .cfg_resp_o_bits_rnw  (m_vif.cfg_resp_o_bits_rnw ),
-           .cfg_resp_o_bits_data (m_vif.cfg_resp_o_bits_data));
+           .mem_resp_i_bits_rnw  (m_mem.mem_resp_i_bits_rnw ),
+           .mem_resp_i_bits_data (m_mem.mem_resp_i_bits_data),
+           .ctl_req_i_ready      (m_vif.ctl_req_i_ready     ),
+           .ctl_req_i_valid      (m_vif.ctl_req_i_valid     ),
+           .ctl_req_i_bits_rnw   (m_vif.ctl_req_i_bits_rnw  ),
+           .ctl_req_i_bits_addr  (m_vif.ctl_req_i_bits_addr ),
+           .ctl_req_i_bits_data  (m_vif.ctl_req_i_bits_data ),
+           .ctl_resp_o_ready     (m_vif.ctl_resp_o_ready    ),
+           .ctl_resp_o_valid     (m_vif.ctl_resp_o_valid    ),
+           .ctl_resp_o_bits_sel  (m_vif.ctl_resp_o_bits_sel ),
+           .ctl_resp_o_bits_rnw  (m_vif.ctl_resp_o_bits_rnw ),
+           .ctl_resp_o_bits_data (m_vif.ctl_resp_o_bits_data));
 
 
     //
@@ -108,7 +119,7 @@ module tb;
         // modified by g_logger
         wait(`trig >= 0);
 
-        repeat(`trig)
+        repeat (`trig)
             @(posedge clock);
 
         $finish();
@@ -145,6 +156,13 @@ module tb;
         $fsdbDumpfile("dump.fsdb");
         $fsdbDumpvars();
         $fsdbDumpMDA();
+
+        forever begin
+            repeat (100000)
+                @(posedge clock);
+
+            $fsdbDumpflush();
+        end
 `endif
 
 `ifdef DUMPSHM

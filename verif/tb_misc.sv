@@ -6,8 +6,80 @@
 
 class tb_base extends verif::object;
 
-    localparam maBits = 32;
-    localparam paBits = 32;
+    localparam maBits  =  64;
+    localparam paBits  =  48;
+
+    localparam mrqWays =  4;
+
+    // derived
+    localparam mpnBits =  maBits - 12;
+    localparam mcnBits =  maBits - 6;
+    localparam mdnBits =  maBits - 3;
+
+    localparam ppnBits =  paBits - 12;
+    localparam pcnBits =  paBits - 6;
+    localparam pdnBits =  paBits - 3;
+
+    localparam ptwLvl  = (mpnBits + (9      - 1)) / 9;
+    localparam ptwTop  =  mpnBits - (ptwLvl - 1)  * 9;
+    localparam ptwEnd  = (maBits  - ptwTop) <= paBits ? 0 : (maBits - ptwTop - paBits) / 9 + 1;
+
+    localparam mrqIdx  =  $clog2(mrqWays);
+
+    typedef bit [mpnBits-1:0] mpn_t;
+    typedef bit [mcnBits-1:0] mcn_t;
+    typedef bit [mdnBits-1:0] mdn_t;
+
+    typedef bit [ppnBits-1:0] ppn_t;
+    typedef bit [pcnBits-1:0] pcn_t;
+    typedef bit [pdnBits-1:0] pdn_t;
+
+    typedef bit [mrqIdx -1:0] idx_t;
+
+    // tb usage
+    static  int TO_MAX = 5000;
+
+    // common functions
+    function bit [maBits-4:0] add_mcd(input mcn_t m);
+        return {m, 3'b0};
+    endfunction
+
+    function bit [paBits-4:0] add_pcd(input pcn_t p);
+        return {p, 3'b0};
+    endfunction
+
+    function bit [519:0] set_err(input bit [511:0] d, bit e);
+        return {e, d[7*64+:64],
+                e, d[6*64+:64],
+                e, d[5*64+:64],
+                e, d[4*64+:64],
+                e, d[3*64+:64],
+                e, d[2*64+:64],
+                e, d[1*64+:64],
+                e, d[0*64+:64]};
+    endfunction
+
+    function bit [511:0] clr_err(input bit [519:0] d);
+        return {d[7*64+7+:64],
+                d[6*64+6+:64],
+                d[5*64+5+:64],
+                d[4*64+4+:64],
+                d[3*64+3+:64],
+                d[2*64+2+:64],
+                d[1*64+1+:64],
+                d[0*64+0+:64]};
+    endfunction
+
+    function bit get_err(input bit [519:0] d);
+        return  d[8*65-1] |
+                d[7*65-1] |
+                d[6*65-1] |
+                d[5*65-1] |
+                d[4*65-1] |
+                d[3*65-1] |
+                d[2*65-1] |
+                d[1*65-1];
+    endfunction
 
 endclass
 
@@ -15,111 +87,148 @@ endclass
 //
 // interface
 
-interface tb_intf (
+`define clk tb.m_vif.clock
+`define rst tb.m_vif.reset
+
+interface tb_ctl_intf (
     input wire clock,
     input wire reset
 );
 
-    logic                        mmu_req_i_ready;
-    logic                        mmu_req_i_valid;
-    logic [tb_base::maBits-13:0] mmu_req_i_bits;
-    logic                        mmu_resp_o_ready;
-    logic                        mmu_resp_o_valid;
-    logic                        mmu_resp_o_bits_err;
-    logic [tb_base::paBits-13:0] mmu_resp_o_bits_ppn;
-
-    logic                        cfg_req_i_ready;
-    logic                        cfg_req_i_valid;
-    logic                        cfg_req_i_bits_rnw;
-    logic [                 3:0] cfg_req_i_bits_addr;
-    logic [                63:0] cfg_req_i_bits_data;
-    logic                        cfg_resp_o_ready;
-    logic                        cfg_resp_o_valid;
-    logic                        cfg_resp_o_bits_inv;
-    logic                        cfg_resp_o_bits_rnw;
-    logic [                63:0] cfg_resp_o_bits_data;
+    bit            ctl_req_i_ready;
+    bit            ctl_req_i_valid;
+    bit            ctl_req_i_bits_rnw;
+    bit [     3:0] ctl_req_i_bits_addr;
+    bit [    63:0] ctl_req_i_bits_data;
+    bit            ctl_resp_o_ready;
+    bit            ctl_resp_o_valid;
+    bit            ctl_resp_o_bits_sel;
+    bit            ctl_resp_o_bits_rnw;
+    bit [    63:0] ctl_resp_o_bits_data;
 
     initial begin
-        mmu_req_i_valid  <= 1'b0;
-        mmu_resp_o_ready <= 1'b0;
-
-        cfg_req_i_valid  <= 1'b0;
-        cfg_resp_o_ready <= 1'b0;
+        ctl_req_i_valid  <= 1'b0;
+        ctl_resp_o_ready <= 1'b0;
     end
 
 endinterface
 
 
-interface tb_intf_mem (
+interface tb_llc_intf (
     input wire clock,
     input wire reset
 );
 
-    logic                       mem_req_o_ready;
-    logic                       mem_req_o_valid;
-    logic [tb_base::maBits-1:0] mem_req_o_bits_pma;
-    logic [tb_base::paBits-1:0] mem_req_o_bits_ppa;
-    logic                       mem_resp_i_ready;
-    logic                       mem_resp_i_valid;
-    logic                       mem_resp_i_bits_err;
-    logic [               63:0] mem_resp_i_bits_pte;
+    bit            llc_req_i_ready;
+    bit            llc_req_i_valid;
+    tb_base::idx_t llc_req_i_bits_idx;
+    bit            llc_req_i_bits_rnw;
+    tb_base::mcn_t llc_req_i_bits_mcn;
+    tb_base::pcn_t llc_req_i_bits_pcn;
+    bit [   511:0] llc_req_i_bits_data;
+    bit            llc_resp_o_ready;
+    bit            llc_resp_o_valid;
+    tb_base::idx_t llc_resp_o_bits_idx;
+    bit            llc_resp_o_bits_err;
+    bit            llc_resp_o_bits_rnw;
+    bit [   511:0] llc_resp_o_bits_data;
+
+    bit            llc_req_o_ready;
+    bit            llc_req_o_valid;
+    tb_base::mcn_t llc_req_o_bits_mcn;
+    bit            llc_resp_i_ready;
+    bit            llc_resp_i_valid;
+    bit            llc_resp_i_bits_hit;
+    bit [   511:0] llc_resp_i_bits_data;
+
+    initial begin
+        llc_req_i_valid  <= 1'b0;
+        llc_resp_o_ready <= 1'b0;
+
+        llc_req_o_ready  <= 1'b0;
+        llc_resp_i_valid <= 1'b0;
+    end
+
+endinterface
+
+
+interface tb_mem_intf (
+    input wire clock,
+    input wire reset
+);
+
+    bit            mem_req_o_ready;
+    bit            mem_req_o_valid;
+    tb_base::idx_t mem_req_o_bits_idx;
+    bit            mem_req_o_bits_rnw;
+    tb_base::mcn_t mem_req_o_bits_mcn;
+    tb_base::pcn_t mem_req_o_bits_pcn;
+    bit [   511:0] mem_req_o_bits_data;
+    bit            mem_resp_i_ready;
+    bit            mem_resp_i_valid;
+    tb_base::idx_t mem_resp_i_bits_idx;
+    bit            mem_resp_i_bits_err;
+    bit            mem_resp_i_bits_rnw;
+    bit [   511:0] mem_resp_i_bits_data;
 
     initial begin
         mem_req_o_ready  <= 1'b0;
         mem_resp_i_valid <= 1'b0;
     end
 
-    // vcs compile bug:
-    //   if higher unused bits are initialized here, vcs would stack overflow
-    //   Info: [STACK_OVERFLOW] Stack Overflow Detected.
-    //   Note: [STACK_INCREASED] Bumping stack from xxx to xxx bytes
-
 endinterface
 
 
-typedef virtual tb_intf     tb_vintf;
-typedef virtual tb_intf_mem tb_vintf_mem;
-
-
-`define clk m_vif.clock
-`define rst m_vif.reset
+typedef virtual tb_ctl_intf tb_vif;
+typedef virtual tb_llc_intf ma_vif;
+typedef virtual tb_mem_intf pa_vif;
 
 
 //
-// tb spefic
+// components
 
-typedef verif::memory #(tb_base::maBits, 64) ma_mem;
-typedef verif::memory #(tb_base::paBits, 65) pa_mem;
+typedef verif::memory #(tb_base::mdnBits, 64) ma_mem;
+typedef verif::memory #(tb_base::pdnBits, 65) pa_mem;
+
+
+typedef struct {
+    bit            err;
+    tb_base::mpn_t mpn;
+    tb_base::ppn_t ppn;
+} tb_gen_res;
 
 
 class tb_gen extends tb_base;
 
    `register(tb_gen);
 
-    localparam ptwLvl = (maBits - 4) / 9;
-    localparam ptwTop =  maBits - 9 * (ptwLvl - 1) - 12;
-    localparam ptwOff =  6 - ptwLvl;
-    localparam ptwEnd = (maBits - ptwTop) <= paBits ? 0 : (maBits - ptwTop - paBits) / 9 + 1;
+    pa_mem     m_mem;
 
-    verif::plusargs m_arg;
-    ma_mem          m_llc;
-    pa_mem          m_mem;
+    bit [63:0] m_ctl     [ptwLvl:0];
+    bit [ 8:0] m_idx     [ptwLvl:1][$];
+    int        m_map     [ppn_t];
+    int        m_shf     [ptwLvl:1];
+    ppn_t      m_msk     [ptwLvl:1];
 
-    bit [63:0] m_csr [0:6];
-    bit [ 8:0] m_mpn [1:ptwLvl][$];
+    int        m_dis_old [ptwLvl:1][];
+    int        m_dis_err [ptwLvl:1][];
+    int        m_dis_blk [ptwLvl:1][];
 
-    int m_dist_mpn [1:ptwLvl][4];
-    int m_dist_err [1:ptwLvl][4];
-    int m_dist_blk [1:ptwLvl][2];
-    int m_dist_llc [1:ptwLvl][2];
+    static tb_gen m_inst;
 
-    bit [paBits-1:12] m_ppn [bit [paBits-1:12]];
+    static function tb_gen get_inst();
+        if (m_inst == null)
+            m_inst =  new();
+
+        return m_inst;
+    endfunction
 
     function new();
-        m_mod = "gen";
-        m_arg = new("gen.");
+        verif::plusargs arg = new("gen.");
 
-       `get(ma_mem, "llc", m_llc);
+        m_mod  = "gen";
+        m_inst =  this;
+
        `get(pa_mem, "mem", m_mem);
 
         init();
@@ -127,279 +236,277 @@ class tb_gen extends tb_base;
     endfunction
 
     virtual function void init();
-        m_csr = '{{{64-paBits{1'b0}},   1'b1, {paBits-2{1'b0}}, 1'b1}, // root
-                  {{64-maBits{1'b0}}, 3'b001, {maBits-3{1'b0}}},       // l1 base
-                  {{64-maBits{1'b0}}, 3'b010, {maBits-3{1'b0}}},       // l2 base
-                  {{64-maBits{1'b0}}, 3'b011, {maBits-3{1'b0}}},       // l3 base
-                  {{64-maBits{1'b0}}, 3'b100, {maBits-3{1'b0}}},       // l4 base
-                  {{64-maBits{1'b0}}, 3'b101, {maBits-3{1'b0}}},       // l5 base
-                  {{64-maBits{1'b0}}, 3'b110, {maBits-3{1'b0}}}};      // l6 base
+        // level-i ptes are located at the highest portion of the ma space
+        // occupied by level-i+1 ptes. as root ptes, level-i ptes map
+        // level-i+1 page table pages
+        bit [mpnBits+66:0] all = {{64{1'b1}}, {mpnBits+3{1'b0}}};
+        ppn_t              top = {    1'b1,   {ppnBits-1{1'b0}}};
+
+        // pa root
+        m_ctl[  0] = {top, 12'b0} | {{paBits-1{1'b0}}, 1'b1};
+        m_map[top] =  1;
+
+        // ma bases
+        for (int i = 1; i <= ptwLvl; i++) begin
+            bit [mpnBits+66:0] shf = all >> ((i - 1) * 9);
+
+            m_ctl[i] = (maBits > 63) ? shf[63:0] : {{64-maBits{shf[maBits-1]}}, shf[maBits-1:0]};
+            m_shf[i] = (ptwLvl -  i) * 9;
+            m_msk[i] = (i == 1) ? {{ppnBits-ptwTop{1'b0}}, {ptwTop{1'b1}}} :
+                                  {{ppnBits-9     {1'b0}}, {     9{1'b1}}};
+        end
+
+       `info($sformatf("lvl: %0d", ptwLvl));
+
+        for (int i = 0; i <= ptwLvl; i++)
+           `info($sformatf("ctl: %0x", m_ctl[i]));
     endfunction
 
     virtual function void hook();
         for (int i = 1; i <= ptwLvl; i++) begin
-            m_dist_mpn[i][0] = 1;
-            m_dist_mpn[i][1] = 30;
-            m_dist_mpn[i][2] = 0;
-            m_dist_mpn[i][3] = 1;
+            m_dis_old[i] = new [2];
+            m_dis_err[i] = new [3];
+            m_dis_blk[i] = new [3];
 
-            m_dist_err[i][0] = 0;
-            m_dist_err[i][1] = 1;
-            m_dist_err[i][2] = 1;
-            m_dist_err[i][3] = 30;
-
-            m_dist_blk[i][0] = 30;
-            m_dist_blk[i][1] = 1;
-
-            m_dist_llc[i][0] = 1;
-            m_dist_llc[i][1] = 1;
+            m_dis_old[i] = '{10, 40};
+            m_dis_err[i] = '{10,  0, 0};
+            m_dis_blk[i] = '{10,  0, 0};
         end
     endfunction
 
-    virtual function bit [maBits-1:12] gen_mpn();
-        bit [ptwLvl*9-1:0] mpn;
-        bit [         8:0] lvl;
+    function bit [8:0] gen_idx(const ref bit [8:0] arr[$]);
+        bit [8:0] idx;
+
+        // solely because m_idx[i] is not supported by the tool
+       `rands(idx, with {
+           idx inside arr;
+        });
+
+        return idx;
+    endfunction
+
+    virtual function mpn_t gen_mpn();
+        bit [mpnBits+8:0] mpn;
+        bit [        8:0] idx;
 
         for (int i = 1; i <= ptwLvl; i++) begin
-            int idx;
-            bit get;
-            bit set;
+            int old;
 
-            // vcs parser bug
-            //   not yet implemented: usage of dist inside the property
-            randcase
-                m_dist_mpn[i][0]: get = 1'b0;
-                m_dist_mpn[i][1]: get = 1'b1;
-            endcase
+           `rands(old, with { old dist {
+                0 := m_dis_old[i][0],
+                1 := m_dis_old[i][1]
+            };});
 
-            randcase
-                m_dist_mpn[i][2]: set = 1'b0;
-                m_dist_mpn[i][3]: set = 1'b1;
-            endcase
+            if (old && !m_idx[i].size() || !old) begin
+               `rands(idx);
 
-            if (get & (m_mpn[i].size() != 0)) begin
-                // vcs parser bug
-                //   cannot write m_mpn[i] here
-                //`rands(lvl, with { lvl inside m_mpn[i]; });
-               `rands(idx, with { idx >= 0; idx < m_mpn[i].size(); });
-
-                lvl = m_mpn[i][idx];
+                // can have duplications
+                m_idx[i].push_back(idx);
             end else
-               `rands(lvl);
+                idx = gen_idx(m_idx[i]);
 
-            if (set)
-                m_mpn[i].push_back(lvl);
-
-            mpn[i*9-:9] = lvl;
+            mpn[i*9-:9] = idx;
         end
 
-        return mpn[maBits-13:0] & {3'b0, {maBits-15{1'b1}}};
+        // non-top of ma space
+        return mpn[mpnBits-1:0] & {1'b0, {mpnBits-1{1'b1}}};
     endfunction
 
-    virtual function bit [paBits-1:12] gen_ppn(input bit [paBits-1:12] ppa);
-        bit [paBits-1:12] ppn;
+    virtual function ppn_t gen_ppn(input bit ptp, int lvl);
+        // num of 4k pages to allocate
+        int     yes = 0;
+        longint num = ptp ? 1 << ((ptwLvl - lvl) * 9) : 1;
+        longint msk = ~(num - 1);
+        ppn_t   ppn;
 
-        if (m_ppn.exists(ppa))
-            ppn = m_ppn[ppa];
-        else begin
-            do
-               `rands(ppn);
-            while (m_ppn.exists(ppn));
+        do begin
+            yes = 0;
 
-            m_ppn[ppa] = ppn;
-        end
+           `rands(ppn);
+
+            // page table pages are placed at the top the pa space, and the
+            // first page aligns to the given boundary
+            ppn = {ptp, ppn[ppnBits-2:0]} & msk[ppnBits-1:0];
+
+            // no single page is allocated twice
+            for (longint i = 0; i < num; i++)
+                if (m_map.exists(ppn + i[ppnBits-1:0])) begin
+                    yes = 1;
+                    break;
+                end
+        end while (yes);
+
+        for (longint i = 0; i < num; i++)
+            m_map[ppn + i[ppnBits-1:0]] = 1;
 
         return ppn;
     endfunction
 
-    virtual function bit [maBits-1:0] cal_pma(input int i,
-                                                    bit [63:12] mpn);
-        bit [63:0] ret = 64'b0;
-        int        lvl = i + ptwOff;
+    virtual function tb_gen_res walk(input mpn_t mpn);
+        ppn_t ppn = m_ctl[0][paBits-1:12];
+        pdn_t pdn = m_ctl[0][paBits-1: 3];
 
-        case (lvl)
-            1: ret = {m_csr[1][63:10], mpn[63:57], 3'b0};
-            2: ret = {m_csr[2][63:19], mpn[63:48], 3'b0};
-            3: ret = {m_csr[3][63:28], mpn[63:39], 3'b0};
-            4: ret = {m_csr[4][63:37], mpn[63:30], 3'b0};
-            5: ret = {m_csr[5][63:46], mpn[63:21], 3'b0};
-            6: ret = {m_csr[6][63:55], mpn[63:12], 3'b0};
-            default:
-               `err($sformatf("cal_pma: invalid level: %0d", i));
-        endcase
+       `info($sformatf("mpn: %x", mpn));
 
-        return ret[maBits-1:0];
-    endfunction
-
-    virtual function bit [paBits-1:0] cal_ppa(input int i,
-                                                    bit [63:12] mpn,
-                                                    bit [64:0 ] pte);
-        bit [63:0] ret = 64'b0;
-        int        lvl = i + ptwOff;
-
-        case (lvl)
-            1: ret = {pte[63:10], mpn[63:57], 3'b0};
-            2: ret = {pte[63:12], mpn[56:48], 3'b0};
-            3: ret = {pte[63:12], mpn[47:39], 3'b0};
-            4: ret = {pte[63:12], mpn[38:30], 3'b0};
-            5: ret = {pte[63:12], mpn[29:21], 3'b0};
-            6: ret = {pte[63:12], mpn[20:12], 3'b0};
-            default:
-               `err($sformatf("cal_ppa: invalid level: %0d", i));
-        endcase
-
-        return ret[paBits-1:0];
-    endfunction
-
-    virtual function bit [paBits-1:12] cal_ppn(input int i,
-                                                     bit [64:12] mpn,
-                                                     bit [64:0 ] pte);
-        bit [63:12] ret = 48'b0;
-        int         lvl = i + ptwOff;
-
-        if (lvl <= ptwEnd)
-           `err($sformatf("cal_ppn: invalid level: %0d", i));
-
-        case (lvl)
-            1: ret = {pte[63:57], mpn[56:12]};
-            2: ret = {pte[63:48], mpn[47:12]};
-            3: ret = {pte[63:39], mpn[38:12]};
-            4: ret = {pte[63:30], mpn[29:12]};
-            5: ret = {pte[63:21], mpn[20:12]};
-            6: ret =  pte[63:12];
-            default:
-               `err($sformatf("cal_ppn: invalid level: %0d", i));
-        endcase
-
-        return ret[paBits-1:12];
-    endfunction
-
-    virtual function bit [maBits+paBits-24:0] main();
-        bit [maBits-1:12] mpn =  gen_mpn();
-        bit [paBits-1:12] ppn = {paBits-12{1'b0}};
-        bit [      64:0 ] pte = {1'b0,  m_csr[0]};
-
+        // top-down ptw: creating missed ptes in memory
         for (int i = 1; i <= ptwLvl; i++) begin
-            bit [maBits-1:0] pma = cal_pma(i, {{64 - maBits{1'b0}}, mpn});
-            bit [paBits-1:0] ppa = cal_ppa(i, {{64 - maBits{1'b0}}, mpn}, pte);
+            bit [64:0] pte;
+            bit [ 1:0] err;
+            bit [ 1:0] blk;
 
-            bit [1:0] err;
-            bit       blk;
-            bit       llc;
+            // no loss of bits
+            mpn_t shf =   mpn >> m_shf[i];
+            ppn_t top = {{pdnBits-9{1'b0}}, shf[8:0]};
 
-            randcase
-                m_dist_err[i][0]: err = 2'h0; // skip: consistent issue
-                m_dist_err[i][1]: err = 2'h1; // bus err
-                m_dist_err[i][2]: err = 2'h2; // inv
-                m_dist_err[i][3]: err = 2'h3; // vld, last non-blk
-            endcase
+            pdn = pdn & ~m_msk[i] | // base
+                  top &  m_msk[i];  // idx
 
-            randcase
-                m_dist_blk[i][0]: blk = 1'h0;
-                m_dist_blk[i][1]: blk = 1'h1;
-            endcase
+           `rands(err, with { err dist {
+                2'h0 := m_dis_err[i][0], // normal
+                2'h1 := m_dis_err[i][1], // bus err
+                2'h2 := m_dis_err[i][2]  // invalid
+            };});
+           `rands(blk, with { blk dist {
+                2'h0 := m_dis_blk[i][0], // normal
+                2'h1 := m_dis_blk[i][1], // huge page
+                2'h2 := m_dis_blk[i][2]  // invalid leaf
+            };});
 
-            randcase
-                m_dist_llc[i][0]: llc = 1'h0;
-                m_dist_llc[i][1]: llc = 1'h1;
-            endcase
+            // re-interpret based on the current level
+            blk[0] = blk[0] & (i <  ptwLvl) |
+                    ~blk[1] & (i == ptwLvl);
 
-            if (m_mem.chk(ppa)) begin
-                pte =  m_mem.get_byte(ppa);
+            if (m_mem.chk(pdn)) begin
+                pte =  m_mem.get_b(pdn);
 
-               `info($sformatf("%0x: l%0d %0x %0x%0x%0x old", mpn, i, pte[paBits-1:12],
-                                                                      pte[64],
-                                                                      pte[ 1],
-                                                                      pte[ 0]));
+                ppn =  pte[paBits-3:10];
 
-                if (m_llc.chk(pma))
-                   `info($sformatf("%0x: llc %0x", mpn, pma));
-                if (1)
-                   `info($sformatf("%0x: mem %0x", mpn, ppa));
+                err[0] =  pte[64];
+                err[1] = ~pte[ 0];
+                blk[0] =  pte[ 1];
             end else begin
-                ppn =  gen_ppn(ppa[paBits-1:12]);
+                // allocate a free new (huge) page
+                ppn =  gen_ppn(blk[0], i);
 
-                pte = {err == 2'h1,
-                      {64-paBits{1'b0}},
-                       ppn,
-                       10'b0,
-                       blk | (i == ptwLvl) & (err == 2'h3),
-                       err != 2'h2};
+                pte = {err[0],  // err
+                      {54-ppnBits{1'b0}},
+                       ppn,     // ppn
+                       6'b0,    // TODO
+                       blk[0],  // x
+                       blk[0],  // w
+                       blk[0],  // r
+                      ~err[1]}; // vld
 
-               `info($sformatf("%0x: l%0d %0x %0x%0x%0x", mpn, i, ppn, pte[64],
-                                                                       pte[ 1],
-                                                                       pte[ 0]));
-
-                if (llc & ~pte[64]) begin
-                   `info($sformatf("%0x: llc %0x", mpn, pma));
-                    m_llc.set_byte(pma, pte[63:0]);
-                end
-
-                if ( 1 ) begin
-                   `info($sformatf("%0x: mem %0x", mpn, ppa));
-                    m_mem.set_byte(ppa, pte[64:0]);
-                end
+                m_mem.set_b(pdn, pte);
             end
 
-            if (pte[0] & ~pte[1] & (i == ptwLvl) |
-                pte[0] &  pte[1] & (i <= ptwEnd) |
-               ~pte[0] |  pte[64]) begin
-               `info($sformatf("%0x: err", mpn));
-                return {1'b1, ppn, mpn};
+            if (blk[0]) begin
+                longint msk = (1 << ((ptwLvl - i) * 9)) - 1;
+
+                ppn = ppn              & ~msk[ppnBits-1:0] |
+                      mpn[ppnBits-1:0] &  msk[ppnBits-1:0];
             end
 
-            if (pte[0] &  pte[1] & ~pte[64]) begin
-                ppn = cal_ppn(i, {{64 - maBits{1'b0}}, mpn}, pte);
+            pdn = {ppn, 9'b0};
 
-               `info($sformatf("%0x: %0x", mpn, ppn));
-                return {1'b0, ppn, mpn};
-            end
+            // pte err
+            if (err[0] | err[1])
+                return '{err: 1'b1,
+                         mpn: mpn,
+                         ppn: ppn};
+
+            // normal (huge) page
+            if (pte[0] & blk[0])
+                return '{err: i <= ptwEnd,
+                         mpn: mpn,
+                         ppn: ppn};
         end
 
-        return {1'b1, ppn, mpn};
+        // invalid leaf
+        return '{err: 1'b1,
+                 mpn: mpn,
+                 ppn: ppn};
+    endfunction
+
+    function tb_gen_res main();
+        return walk(gen_mpn());
     endfunction
 
 endclass
 
 
-class tb_trans extends tb_base;
+class tb_req extends tb_base;
 
-   `register(tb_trans);
+   `register(tb_req);
 
-    bit [maBits-1:12] m_mpn;
-    bit [paBits-1:12] m_ppn;
-    bit               m_err;
+    bit         m_vld;
+    bit         m_err;
+    bit         m_rnw;
+    idx_t       m_idx;
+    mcn_t       m_mcn;
+    pcn_t       m_pcn;
+    bit [511:0] m_data;
 
-    bit [      31:0 ] m_dly;
+    int         m_cnt;
+    int         m_dly;
+
+    ma_mem      m_llc;
+    pa_mem      m_mem;
 
     function new();
-        m_mpn = {maBits-12{1'b0}};
-        m_ppn = {paBits-12{1'b0}};
-        m_err =   1'b0;
-        m_dly =  32'b0;
+        verif::plusargs arg = new("req.");
+
+        int min = arg.get_int("min", 0);
+        int max = arg.get_int("max", 10);
+
+        m_mod = "req";
+
+        m_vld =  1'b0;
+        m_cnt =  0;
+        m_dly = `urand(min, max);
+
+       `get(ma_mem, "llc", m_llc);
+       `get(pa_mem, "mem", m_mem);
     endfunction
 
-    function void init();
-        verif::plusargs arg = new("trans.");
+    virtual function void init();
+        tb_gen     gen = tb_gen::get_inst();
+        tb_gen_res res;
+        bit [11:6] pof;
 
-        m_min =  arg.get_int("min", 0);
-        m_max =  arg.get_int("max", 100);
-        m_dly = `urand();
-    endfunction
+       `rands(pof);
+       `rands(m_rnw);
+       `rands(m_data);
 
-    virtual function void pre();
-        tb_gen gen;
-       `get(tb_gen, "gen", gen);
+        res = m_vld ? gen.walk(m_mcn) :
+                      gen.main();
 
-        init();
+        m_err =  res.err;
+        m_mcn = {res.mpn, pof};
+        m_pcn = {res.ppn, pof};
 
-       {m_err, m_ppn, m_mpn} = gen.main();
+       `info($sformatf("%x -> %x %x", m_mcn, m_pcn, m_err));
     endfunction
 
     virtual function void body();
+        m_vld = 1'b1;
+
+        if (m_rnw) begin
+            if (m_mem.chk(add_pcd(m_pcn)))
+                m_data = clr_err(m_mem.get_d(add_pcd(m_pcn)));
+            else
+                m_mem.set_d(add_pcd(m_pcn),
+                            set_err(m_data, m_err));
+        end else
+            m_llc.set_d(add_mcd(m_mcn), m_data);
     endfunction
 
     virtual function void post();
+        m_vld = 1'b0;
+        m_cnt = 0;
+
+        if (m_rnw && !m_err)
+            m_llc.set_d(add_mcd(m_mcn), m_data);
     endfunction
 
 endclass
@@ -409,316 +516,393 @@ class tb_seq extends tb_base;
 
    `register(tb_seq);
 
-    mailbox m_mbx_drv;
+    mailbox m_box;
     event   m_evt;
 
     function new();
         m_mod = "seq";
 
-       `get(mailbox, "seq", m_mbx_drv);
+       `get(mailbox, "box", m_box);
     endfunction
 
-    task put(ref tb_trans tr);
-        fork
-            m_mbx_drv.put(tr);
-        join
+    task put(ref tb_req req);
+        m_box.put(req);
     endtask
 
     virtual task main();
         verif::plusargs arg = new("seq.");
 
-        string str = arg.get_str("name", "tb_trans");
+        string str = arg.get_str("name", "tb_req");
 
         // triggered in tb_drv
         @(m_evt);
 
         forever
-           `start(tb_trans, str);
+           `start(tb_req, str);
     endtask
 
 endclass
 
 
-class tb_drv extends tb_base;
+class tb_ctl extends tb_base;
 
-    tb_vintf m_vif;
-    tb_seq   m_seq;
-    tb_gen   m_gen;
+    tb_vif m_vif;
 
-    mailbox  m_mbx_seq;
-    mailbox  m_mbx_scb;
+    tb_seq m_seq;
+    tb_gen m_gen;
 
-    function new(ref tb_vintf vif);
-        m_mod = "drv";
+    function new(ref tb_vif vif);
+        m_mod = "ctl";
+
         m_vif =  vif;
+        m_gen =  tb_gen::get_inst();
 
-       `get(tb_seq,  "seq", m_seq);
-       `get(tb_gen,  "gen", m_gen);
-       `get(mailbox, "seq", m_mbx_seq);
-       `get(mailbox, "drv", m_mbx_scb);
+       `get(tb_seq, "seq", m_seq);
     endfunction
 
-    task cfg();
-        for (int i = 0; i <= tb_gen::ptwLvl; i++) begin
-            m_vif.cfg_req_i_valid     <= 1'b1;
-            m_vif.cfg_req_i_bits_rnw  <= 1'b0;
-            m_vif.cfg_req_i_bits_addr <= i[3:0];
-            m_vif.cfg_req_i_bits_data <= m_gen.m_csr[i];
+    task main();
+        for (int i = 0; i <= ptwLvl; i++) begin
+            m_vif.ctl_req_i_valid     <= 1'b1;
+            m_vif.ctl_req_i_bits_rnw  <= 1'b0;
+            m_vif.ctl_req_i_bits_addr <= i[3:0];
+            m_vif.ctl_req_i_bits_data <= m_gen.m_ctl[i];
+           `waitt(m_vif.ctl_req_i_ready,  TO_MAX, "req timeout");
+            m_vif.ctl_req_i_valid     <= 1'b0;
 
-           `waits(m_vif.cfg_req_i_ready);
-           `info($sformatf("cfg %0x: %0x", i[3:0], m_gen.m_csr[i]));
-            m_vif.cfg_req_i_valid     <= 1'b0;
+            m_vif.ctl_resp_o_ready    <= 1'b1;
+           `waitt(m_vif.ctl_resp_o_valid, TO_MAX, "resp timeout");
+            m_vif.ctl_resp_o_ready    <= 1'b0;
 
-            m_vif.cfg_resp_o_ready    <= 1'b1;
-
-           `waits(m_vif.cfg_resp_o_valid);
-           `info($sformatf("cfg %0x: %0x", i[3:0], m_vif.cfg_resp_o_bits_inv));
-            m_vif.cfg_resp_o_ready    <= 1'b0;
-
-            if (m_vif.cfg_resp_o_bits_inv)
-               `err($sformatf("cfg: initialization failed on CSR[%0d]", i));
+            if (~m_vif.ctl_resp_o_bits_sel)
+               `err($sformatf("failed: %0d", i));
         end
 
         // trigger
         ->m_seq.m_evt;
     endtask
 
-    task mmu();
-        tb_trans tr;
-
-        forever begin
-            m_mbx_seq.get(tr);
-
-            tr.pre();
-
-           `waits(m_vif.mmu_req_i_ready);
-           `waitn(tr.m_dly);
-            m_vif.mmu_req_i_valid  <= 1'b1;
-            m_vif.mmu_req_i_bits   <= tr.m_mpn;
-
-           `waits(m_vif.mmu_req_i_ready);
-            m_vif.mmu_req_i_valid  <= 1'b0;
-
-           `info($sformatf("%0x: %0x %0x", tr.m_mpn, tr.m_err, tr.m_ppn));
-
-            tr.body();
-
-            m_vif.mmu_resp_o_ready <= 1'b1;
-           `waits(m_vif.mmu_resp_o_valid);
-
-            tr.post();
-
-            m_vif.mmu_resp_o_ready <= 1'b0;
-
-           `info($sformatf("%0x: to scb", tr.m_mpn));
-
-            m_mbx_scb.put(tr);
-        end
-    endtask
-
-    task main();
-        fork
-            cfg();
-            mmu();
-        join
-    endtask
-
 endclass
 
 
-class tb_slv extends tb_base;
+class tb_llc extends tb_base;
 
-    tb_vintf_mem m_vif;
+    ma_vif    m_vif;
+    ma_mem    m_llc;
 
-    int m_req_min;
-    int m_req_max;
-    int m_acc_min;
-    int m_acc_max;
+    tb_req    m_req [mrqWays-1:0];
+    semaphore m_sem;
+    mailbox   m_box;
+    mailbox   m_ldp;
 
-    function new(ref tb_vintf_mem vif, input string str);
-        verif::plusargs arg = new($sformatf("drv.%s.", str));
+    int       m_req_min;
+    int       m_req_max;
+    int       m_acc_min;
+    int       m_acc_max;
+    int       m_ldp_clr;
+    int       m_ldp_set;
 
-        m_vif = vif;
+    function new(ref ma_vif vif);
+        verif::plusargs arg = new("llc.");
+
+        m_mod = "llc";
+        m_vif =  vif;
+        m_sem =  new(1);
+        m_ldp =  new(0);
+
+       `get(ma_mem,  "llc", m_llc);
+       `get(mailbox, "box", m_box);
 
         m_req_min = arg.get_int("req_min", 0);
         m_req_max = arg.get_int("req_max", 100);
         m_acc_min = arg.get_int("acc_min", 0);
         m_acc_max = arg.get_int("acc_max", 100);
+        m_ldp_clr = arg.get_int("ldp_clr", 1);
+        m_ldp_set = arg.get_int("ldp_set", 1);
+
+        foreach (m_req[i])
+            m_req[i] = new();
     endfunction
 
-    virtual function bit [64:0] get_data();
-    endfunction
-
-    task slv();
-        bit [31:0] dly;
-        bit [64:0] data;
-
+    task cha_req();
         forever begin
-            dly = `urand(m_req_min, m_req_max);
+            tb_req req = null;
+            idx_t  idx;
+            bit    vld;
 
-            if (dly == 0)
-                m_vif.mem_req_o_ready <= 1'b1;
+            m_sem.get();
+            foreach (m_req[i])
+                if (~m_req[i].m_vld) begin
+                    req = m_req[i];
+                    idx = i[mrqIdx-1:0];
+                    break;
+                end
+            m_sem.put();
 
-           `waits(m_vif.mem_req_o_valid);
-            data = get_data();
+            if (req == null) begin
+               `waitn(1);
+                continue;
+            end
+
+           `rands(vld, with { vld dist {
+                1'b0 := m_ldp_clr,
+                1'b1 := m_ldp_set
+            };});
+
+            if (vld && !m_ldp.try_get(req))
+                m_box.get(req);
+           `waitn(req.m_dly);
+
+            do begin
+                vld = 1'b0;
+                req.init();
+
+                foreach (m_req[i])
+                    if (m_req[i].m_vld && (m_req[i].m_mcn == req.m_mcn)) begin
+                        vld = 1'b1;
+                        break;
+                    end
+            end while (vld);
+
+            m_vif.llc_req_i_valid     <= 1'b1;
+            m_vif.llc_req_i_bits_idx  <= idx;
+            m_vif.llc_req_i_bits_rnw  <= req.m_rnw;
+            m_vif.llc_req_i_bits_mcn  <= req.m_mcn;
+            m_vif.llc_req_i_bits_pcn  <= req.m_pcn;
+            m_vif.llc_req_i_bits_data <= req.m_data;
+           `waitt(m_vif.llc_req_i_ready, TO_MAX, "cha req timeout");
+            m_vif.llc_req_i_valid     <= 1'b0;
+
+            m_sem.get();
+            req.body();
+
+            m_req[idx] = req;
+            m_sem.put();
+        end
+    endtask
+
+    task cha_resp();
+        forever begin
+            tb_req req;
+            int    dly = `urand(m_req_min, m_req_max);
+
+            m_vif.llc_resp_o_ready     <= dly == 0;
+           `waits(m_vif.llc_resp_o_valid);
 
             if (dly) begin
                `waitn(dly - 1);
-
-                m_vif.mem_req_o_ready <= 1'b1;
-               `waitn();
+                m_vif.llc_resp_o_ready <= 1'b1;
+               `waitn(1);
             end
+            m_vif.llc_resp_o_ready     <= 1'b0;
 
-            m_vif.mem_req_o_ready     <= 1'b0;
+            m_sem.get();
+            req = m_req[m_vif.llc_resp_o_bits_idx];
+
+            if (req.m_vld  == 1'b0)
+               `err($sformatf("cha wrong idx: %0x", m_vif.llc_resp_o_bits_idx));
+            if (req.m_err  != m_vif.llc_resp_o_bits_err)
+               `err($sformatf("err mismatch: %0x vs. %0x", req.m_err,  m_vif.llc_resp_o_bits_err));
+            if (req.m_rnw  != m_vif.llc_resp_o_bits_rnw)
+               `err($sformatf("rnw mismatch: %0x vs. %0x", req.m_rnw,  m_vif.llc_resp_o_bits_rnw));
+            if (req.m_data != m_vif.llc_resp_o_bits_data)
+               `err($sformatf("dat mismatch: %0x vs. %0x", req.m_data, m_vif.llc_resp_o_bits_data));
+
+            req.post();
+            m_sem.put();
+        end
+    endtask
+
+    task cha_to();
+        forever begin
+           `waitn(1);
+
+            m_sem.get();
+            foreach (m_req[i])
+                if (m_req[i].m_vld && (++m_req[i].m_cnt >= TO_MAX))
+                   `err($sformatf("cha req timeout: %0d", i));
+            m_sem.put();
+        end
+    endtask
+
+    task chc();
+        forever begin
+            mcn_t mcn;
+            bit   hit;
+            bit   ldp;
+            int   dly = `urand(m_req_min, m_req_max);
+
+            m_vif.llc_req_o_ready      <= dly == 0;
+           `waits(m_vif.llc_req_o_valid);
+
+            if (dly) begin
+               `waitn(dly - 1);
+                m_vif.llc_req_o_ready  <= 1'b1;
+               `waitn(1);
+            end
+            m_vif.llc_req_o_ready      <= 1'b0;
 
             dly = `urand(m_acc_min, m_acc_max);
-
            `waitn(dly);
-            m_vif.mem_resp_i_valid    <= 1'b1;
-            m_vif.mem_resp_i_bits_err <= data[64  ];
-            m_vif.mem_resp_i_bits_pte <= data[63:0];
 
-           `waits(m_vif.mem_resp_i_ready);
-            m_vif.mem_resp_i_valid    <= 1'b0;
+            mcn =  m_vif.llc_req_o_bits_mcn;
+            hit =  m_llc.chk(mcn);
+
+            m_vif.llc_resp_i_valid     <= 1'b1;
+            m_vif.llc_resp_i_bits_hit  <= hit;
+            m_vif.llc_resp_i_bits_data <= m_llc.get_d(mcn);
+           `waitt(m_vif.llc_resp_i_ready, TO_MAX, "chc resp timeout");
+            m_vif.llc_resp_i_valid     <= 1'b0;
+
+            // llc actively loads ptes back
+           `rands(ldp, with { ldp dist {
+                1'b0 := m_ldp_clr,
+                1'b1 := m_ldp_set
+            };});
+
+            if (ldp && !hit) begin
+                tb_req req = new();
+
+                req.m_vld = 1'b1;
+                req.m_err = 1'b0;
+                req.m_rnw = 1'b1;
+                req.m_mcn = mcn;
+
+                m_ldp.put(req);
+            end
         end
     endtask
 
     task main();
         fork
-            slv();
+            cha_req ();
+            cha_resp();
+            cha_to  ();
+            chc     ();
         join
     endtask
 
 endclass
 
 
-class tb_slv_llc extends tb_slv;
+class tb_mem extends tb_base;
 
-    ma_mem m_llc;
+    pa_vif    m_vif;
+    pa_mem    m_mem;
 
-    function new(ref tb_vintf_mem vif);
-        super.new(vif, "llc");
-        m_mod = "llc";
+    tb_req    m_req [mrqWays-1:0];
+    semaphore m_sem;
 
-       `get(ma_mem, "llc", m_llc);
-    endfunction
+    int       m_req_min;
+    int       m_req_max;
+    int       m_acc_min;
+    int       m_acc_max;
 
-    virtual function bit [64:0] get_data();
-        bit        hit =  m_llc.chk(m_vif.mem_req_o_bits_pma);
-        bit [64:0] ret = {hit, hit ? m_llc.get_byte(m_vif.mem_req_o_bits_pma) : 64'hdeadbeef};
+    function new(ref pa_vif vif);
+        verif::plusargs arg = new("mem.");
 
-       `info($sformatf("%0x: %0x %0x", m_vif.mem_req_o_bits_pma, ret[64], ret[63:0]));
-        return ret;
-    endfunction
-
-endclass
-
-
-class tb_slv_mem extends tb_slv;
-
-    pa_mem m_mem;
-
-    function new(ref tb_vintf_mem vif);
-        super.new(vif, "mem");
         m_mod = "mem";
+        m_vif =  vif;
+        m_sem =  new(1);
 
        `get(pa_mem, "mem", m_mem);
+
+        m_req_min = arg.get_int("req_min", 0);
+        m_req_max = arg.get_int("req_max", 100);
+        m_acc_min = arg.get_int("acc_min", 0);
+        m_acc_max = arg.get_int("acc_max", 100);
+
+        foreach (m_req[i])
+            m_req[i] = new();
     endfunction
 
-    virtual function bit [64:0] get_data();
-        bit        hit = m_mem.chk(m_vif.mem_req_o_bits_ppa);
-        bit [64:0] ret = hit ? m_mem.get_byte(m_vif.mem_req_o_bits_ppa) : {1'b1, 64'hdeadbeef};
+    task cha_req();
+        forever begin
+            tb_req req;
+            int    dly = `urand(m_req_min, m_req_max);
 
-       `info($sformatf("%0x: %0x %0x", m_vif.mem_req_o_bits_ppa, ret[64], ret[63:0]));
-        return ret;
-    endfunction
+            m_vif.mem_req_o_ready     <= dly == 0;
+           `waits(m_vif.mem_req_o_valid);
 
-endclass
+            if (dly) begin
+               `waitn(dly - 1);
+                m_vif.mem_req_o_ready <= 1'b1;
+               `waitn(1);
+            end
+            m_vif.mem_req_o_ready     <= 1'b0;
 
+            m_sem.get();
+            req = m_req[m_vif.mem_req_o_bits_idx];
 
-class tb_mon extends tb_base;
+            if (req.m_vld)
+               `err($sformatf("duplicated idx: %0x", m_vif.mem_req_o_bits_idx));
 
-    tb_vintf m_vif;
+            req.m_vld  =  1'b1;
+            req.m_dly  = `urand(m_acc_min, m_acc_max);
+            req.m_rnw  =  m_vif.mem_req_o_bits_rnw;
+            req.m_pcn  =  m_vif.mem_req_o_bits_pcn;
+            req.m_data =  m_vif.mem_req_o_bits_data;
+            m_sem.put();
+        end
+    endtask
 
-    mailbox  m_mbx_scb;
-
-    function new(ref tb_vintf vif);
-        m_mod = "mon";
-        m_vif =  vif;
-
-       `get(mailbox, "mon", m_mbx_scb);
-    endfunction
-
-    task mon();
-        verif::plusargs arg = new("mon.");
-        int max = arg.get_int("max", 5000);
+    task cha_resp();
+        int cnt = 0;
 
         forever begin
-            tb_trans tr = new();
+           `waitn(1);
 
-           `waits(m_vif.mmu_req_i_valid);
-           `waitt(m_vif.mmu_req_i_ready,  max, "req hs t/o!");
+            m_sem.get();
+            foreach (m_req[i]) begin
+                tb_req req = m_req[i];
 
-            tr.m_mpn = m_vif.mmu_req_i_bits;
+                if (req.m_vld && req.m_dly)
+                    req.m_dly--;
+            end
+            m_sem.put();
 
-           `waitt(m_vif.mmu_resp_o_valid, max, "req t/o!");
-           `waitt(m_vif.mmu_resp_o_ready, max, "rsp hs t/o!");
+            if (m_vif.mem_resp_i_valid)
+                if (m_vif.mem_resp_i_ready) begin
+                    m_vif.mem_resp_i_valid <= 1'b0;
+                    cnt = 0;
+                end else begin
+                    if (++cnt >= TO_MAX)
+                       `err("resp timeout");
 
-            tr.m_err = m_vif.mmu_resp_o_bits_err;
-            tr.m_ppn = m_vif.mmu_resp_o_bits_ppn;
+                    continue;
+                end
 
-           `info($sformatf("%0x: %0x %0x: to scb", tr.m_mpn, tr.m_err, tr.m_ppn));
+            m_sem.get();
+            foreach (m_req[i]) begin
+                tb_req req = m_req[i];
 
-            m_mbx_scb.put(tr);
+                if (req.m_vld && !req.m_dly) begin
+                    bit [519:0] d = m_mem.get_d(add_pcd(req.m_pcn));
+
+                    if (req.m_rnw)
+                        req.m_data = clr_err(d);
+                    else
+                        m_mem.set_d(add_pcd(req.m_pcn),
+                                    set_err(req.m_data, 1'b0));
+
+                    req.m_vld = 1'b0;
+
+                    m_vif.mem_resp_i_valid     <= 1'b1;
+                    m_vif.mem_resp_i_bits_err  <= get_err(d);
+                    m_vif.mem_resp_i_bits_idx  <= i[mrqIdx-1:0];
+                    m_vif.mem_resp_i_bits_rnw  <= req.m_rnw;
+                    m_vif.mem_resp_i_bits_data <= req.m_data;
+
+                    break;
+                end
+            end
+            m_sem.put();
         end
     endtask
 
     task main();
         fork
-            mon();
-        join
-    endtask
-
-endclass
-
-
-class tb_scb extends tb_base;
-
-    mailbox m_mbx_drv;
-    mailbox m_mbx_mon;
-
-    function new();
-        m_mod = "scb";
-
-       `get(mailbox, "drv", m_mbx_drv);
-       `get(mailbox, "mon", m_mbx_mon);
-    endfunction
-
-    task scb();
-        forever begin
-            tb_trans tx;
-            tb_trans rx;
-
-            fork
-                m_mbx_drv.get(tx);
-                m_mbx_mon.get(rx);
-            join
-
-           `info($sformatf("%0x: %0x %0x", tx.m_mpn, tx.m_err, tx.m_ppn));
-           `info($sformatf("%0x: %0x %0x", rx.m_mpn, rx.m_err, rx.m_ppn));
-
-            if (tx.m_mpn != rx.m_mpn)
-               `err("mpn mismatch");
-            if (tx.m_err != rx.m_err)
-               `err("err mismatch");
-            if (~rx.m_err & (tx.m_ppn != rx.m_ppn))
-               `err("ppn mismatch");
-        end
-    endtask
-
-    task main();
-        fork
-            scb();
+            cha_req ();
+            cha_resp();
         join
     endtask
 
@@ -727,66 +911,45 @@ endclass
 
 class tb_env extends tb_base;
 
-    tb_vintf   m_vif;
+    tb_ctl  m_ctl;
+    tb_gen  m_gen;
+    tb_seq  m_seq;
+    tb_llc  m_uvc_llc;
+    tb_mem  m_uvc_mem;
 
-    tb_gen     m_gen;
-    tb_seq     m_seq;
-    tb_drv     m_drv;
-    tb_slv_llc m_slv_llc;
-    tb_slv_mem m_slv_mem;
-    tb_mon     m_mon;
-    tb_scb     m_scb;
+    mailbox m_box;
 
-    mailbox    m_mbx_seq;
-    mailbox    m_mbx_drv;
-    mailbox    m_mbx_mon;
+    ma_mem  m_llc;
+    pa_mem  m_mem;
 
-    ma_mem     m_llc;
-    pa_mem     m_mem;
-
-    function new(input tb_vintf     vif,
-                       tb_vintf_mem vif_llc,
-                       tb_vintf_mem vif_mem);
-
+    function new(input tb_vif vif, ma_vif llc, pa_vif mem);
         verif::plusargs arg = new("env.");
 
-        // 1.
-        m_mbx_seq = new(1);
-        m_mbx_drv = new();
-        m_mbx_mon = new();
-
-        m_llc     = new("llc");
-        m_mem     = new("mem");
-
-       `set(mailbox, "seq", m_mbx_seq);
-       `set(mailbox, "drv", m_mbx_drv);
-       `set(mailbox, "mon", m_mbx_mon);
+        m_box     = new(1);
+        m_llc     = new("LLC");
+        m_mem     = new("MEM");
 
        `set(ma_mem,  "llc", m_llc);
        `set(pa_mem,  "mem", m_mem);
+       `set(mailbox, "box", m_box);
 
-        // 2.
-       `spawn(arg.get_str("seq", "tb_seq"), m_seq);
        `spawn(arg.get_str("gen", "tb_gen"), m_gen);
+       `spawn(arg.get_str("seq", "tb_seq"), m_seq);
 
        `set(tb_gen,  "gen", m_gen);
        `set(tb_seq,  "seq", m_seq);
 
-        m_drv     = new(vif);
-        m_slv_llc = new(vif_llc);
-        m_slv_mem = new(vif_mem);
-        m_mon     = new(vif);
-        m_scb     = new();
+        m_ctl     = new(vif);
+        m_uvc_llc = new(llc);
+        m_uvc_mem = new(mem);
     endfunction
 
     task main();
         fork
+            m_ctl    .main();
             m_seq    .main();
-            m_drv    .main();
-            m_slv_llc.main();
-            m_slv_mem.main();
-            m_mon    .main();
-            m_scb    .main();
+            m_uvc_llc.main();
+            m_uvc_mem.main();
         join
     endtask
 

@@ -4,7 +4,7 @@
 $VERIF/lib/verif.c
 $VERIF/lib/verif.sv
 
-$VERIF/../gen/MidgardMMU.v
+$VERIF/../gen/MMU.v
 
 $VERIF/tb_misc.sv
 $VERIF/tb.sv
