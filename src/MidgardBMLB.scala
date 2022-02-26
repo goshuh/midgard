@@ -84,10 +84,10 @@ class MLB(P: Param) extends Module {
   // --------------------------
   // io
 
-  val mrq_req_i  = IO(Flipped(Decoupled(new MLBReq(P))))
-  val mrq_resp_o = IO(            Valid(new MLBResp(P)))
+  val mrq_req_i  = IO(Flipped(Decoupled(new MLBReq  (P))))
+  val mrq_resp_o = IO(            Valid(new MLBResp (P)))
 
-  val ptw_req_o  = IO(        Decoupled(new MLBReq(P)))
+  val ptw_req_o  = IO(        Decoupled(new MLBReq  (P)))
   val ptw_resp_i = IO(Flipped(    Valid(new MLBEntry(P))))
 
   val rst_i      = IO(            Input(Bool()))
@@ -154,8 +154,8 @@ class MLB(P: Param) extends Module {
     val s2_set     = s2_mpn_q(P.mlbIdx.W)
     val s2_tag     = s2_mpn_q(P.mpnBits := P.mlbIdx)
 
-    val s2_vld_way = s2_rdata.map(_.vld)
-    val s2_hit_way = s2_rdata.map(_.hit(s2_tag))
+    val s2_vld_way = s2_rdata.map(_.vld).U
+    val s2_hit_way = s2_rdata.map(_.hit(s2_tag)).U
     val s2_hit_any = Any(s2_hit_way)
 
     // simple random replacement

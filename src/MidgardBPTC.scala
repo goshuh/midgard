@@ -40,7 +40,7 @@ object PTCRdReq {
 object PTCWrReq {
   def apply(P: Param, l: UInt, m: UInt, d: UInt): PTCWrReq = {
     val ret = Wire(new PTCWrReq(P))
-  
+
     ret.lvl  := l
     ret.mcn  := m
     ret.data := d
@@ -54,16 +54,16 @@ class PTC(P: Param) extends Module {
   // --------------------------
   // io
 
-  val llc_req_i  = IO(Flipped(Decoupled(new MemReq(P))))
-  val llc_resp_o = IO(        Decoupled(new MemResp(P)))
+  val llc_req_i  = IO(Flipped(Decoupled(new MemReq (P, P.llcIdx))))
+  val llc_resp_o = IO(        Decoupled(new MemResp(P, P.llcIdx)))
 
   val ptw_req_i  = IO(Flipped(    Valid(new PTCRdReq(P))))
   val ptw_resp_o = IO(            Valid(new PTCEntry(P)))
-                              
+
   val upd_req_i  = IO(Flipped(    Valid(new PTCWrReq(P))))
 
-  val mrq_req_o  = IO(        Decoupled(new MemReq(P)))
-  val mrq_resp_i = IO(Flipped(Decoupled(new MemResp(P))))
+  val mrq_req_o  = IO(        Decoupled(new MemReq (P, P.llcIdx)))
+  val mrq_resp_i = IO(Flipped(Decoupled(new MemResp(P, P.llcIdx))))
 
   val clr_i      = IO(            Input(Bool()))
 
@@ -105,7 +105,7 @@ class PTC(P: Param) extends Module {
       val ptc_q = dontTouch(Wire(Vec(P.ptcWays(i), new PTCEntry(P))))
 
       // same-line either in ma/pa space
-      val hit_way = ptc_q.map(_.hit(req_mcn))
+      val hit_way = ptc_q.map(_.hit(req_mcn)).U
       val hit_any = Any(hit_way)
 
       // llc req may collide with upd req. leave it to mrq
@@ -203,7 +203,8 @@ class PTC(P: Param) extends Module {
                                          llc_req_i.bits.idx,
                                          false.B,
                                          llc_req_i.bits.rnw,
-                                         ptc_mux.data),
+                                         ptc_mux.data,
+                                         P.llcIdx),
                                  llc_req_hit)
 
   ptw_resp_o.valid := ptc_hit
@@ -223,7 +224,8 @@ class PTC(P: Param) extends Module {
                              llc_req_i.bits.rnw,
                              llc_req_i.bits.mcn,
                              0.U,
-                             llc_req_i.bits.data)
+                             llc_req_i.bits.data,
+                             P.llcIdx)
 
-  mrq_resp_i.ready := llc_fsm_is_mem
+  mrq_resp_i.ready := llc_fsm_is_mem && llc_resp_o.ready
 }

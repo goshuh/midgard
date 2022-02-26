@@ -10,7 +10,9 @@ case class Param(
   clBits:   Int     = 512,
 
   asidBits: Int     = 16,
-  
+
+  llcIdx:   Int,
+
   vlbWays:  Int,
 
   mlbEn:    Boolean,

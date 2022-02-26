@@ -9,7 +9,8 @@ class tb_base extends verif::object;
     localparam maBits  =  64;
     localparam paBits  =  48;
 
-    localparam mrqWays =  4;
+    localparam llcWays =  8;
+    localparam memWays =  4;
 
     // derived
     localparam mpnBits =  maBits - 12;
@@ -24,7 +25,8 @@ class tb_base extends verif::object;
     localparam ptwTop  =  mpnBits - (ptwLvl - 1)  * 9;
     localparam ptwEnd  = (maBits  - ptwTop) <= paBits ? 0 : (maBits - ptwTop - paBits) / 9 + 1;
 
-    localparam mrqIdx  =  $clog2(mrqWays);
+    localparam llcIdx  = $clog2(llcWays);
+    localparam memIdx  = $clog2(memWays);
 
     typedef bit [mpnBits-1:0] mpn_t;
     typedef bit [mcnBits-1:0] mcn_t;
@@ -34,7 +36,8 @@ class tb_base extends verif::object;
     typedef bit [pcnBits-1:0] pcn_t;
     typedef bit [pdnBits-1:0] pdn_t;
 
-    typedef bit [mrqIdx -1:0] idx_t;
+    typedef bit [llcIdx -1:0] llc_t;
+    typedef bit [memIdx -1:0] mem_t;
 
     // tb usage
     static  int TO_MAX = 5000;
@@ -60,14 +63,14 @@ class tb_base extends verif::object;
     endfunction
 
     function bit [511:0] clr_err(input bit [519:0] d);
-        return {d[7*64+7+:64],
-                d[6*64+6+:64],
-                d[5*64+5+:64],
-                d[4*64+4+:64],
-                d[3*64+3+:64],
-                d[2*64+2+:64],
-                d[1*64+1+:64],
-                d[0*64+0+:64]};
+        return {d[7*65+:64],
+                d[6*65+:64],
+                d[5*65+:64],
+                d[4*65+:64],
+                d[3*65+:64],
+                d[2*65+:64],
+                d[1*65+:64],
+                d[0*65+:64]};
     endfunction
 
     function bit get_err(input bit [519:0] d);
@@ -121,14 +124,14 @@ interface tb_llc_intf (
 
     bit            llc_req_i_ready;
     bit            llc_req_i_valid;
-    tb_base::idx_t llc_req_i_bits_idx;
+    tb_base::llc_t llc_req_i_bits_idx;
     bit            llc_req_i_bits_rnw;
     tb_base::mcn_t llc_req_i_bits_mcn;
     tb_base::pcn_t llc_req_i_bits_pcn;
     bit [   511:0] llc_req_i_bits_data;
     bit            llc_resp_o_ready;
     bit            llc_resp_o_valid;
-    tb_base::idx_t llc_resp_o_bits_idx;
+    tb_base::llc_t llc_resp_o_bits_idx;
     bit            llc_resp_o_bits_err;
     bit            llc_resp_o_bits_rnw;
     bit [   511:0] llc_resp_o_bits_data;
@@ -159,14 +162,14 @@ interface tb_mem_intf (
 
     bit            mem_req_o_ready;
     bit            mem_req_o_valid;
-    tb_base::idx_t mem_req_o_bits_idx;
+    tb_base::mem_t mem_req_o_bits_idx;
     bit            mem_req_o_bits_rnw;
     tb_base::mcn_t mem_req_o_bits_mcn;
     tb_base::pcn_t mem_req_o_bits_pcn;
     bit [   511:0] mem_req_o_bits_data;
     bit            mem_resp_i_ready;
     bit            mem_resp_i_valid;
-    tb_base::idx_t mem_resp_i_bits_idx;
+    tb_base::mem_t mem_resp_i_bits_idx;
     bit            mem_resp_i_bits_err;
     bit            mem_resp_i_bits_rnw;
     bit [   511:0] mem_resp_i_bits_data;
@@ -442,7 +445,7 @@ class tb_req extends tb_base;
     bit         m_vld;
     bit         m_err;
     bit         m_rnw;
-    idx_t       m_idx;
+    llc_t       m_idx;
     mcn_t       m_mcn;
     pcn_t       m_pcn;
     bit [511:0] m_data;
@@ -485,7 +488,7 @@ class tb_req extends tb_base;
         m_mcn = {res.mpn, pof};
         m_pcn = {res.ppn, pof};
 
-       `info($sformatf("%x -> %x %x", m_mcn, m_pcn, m_err));
+       `info($sformatf("%x -> %x %x %x", m_mcn, m_pcn, res.ppn, m_err));
     endfunction
 
     virtual function void body();
@@ -589,7 +592,7 @@ class tb_llc extends tb_base;
     ma_vif    m_vif;
     ma_mem    m_llc;
 
-    tb_req    m_req [mrqWays-1:0];
+    tb_req    m_req [llcWays-1:0];
     semaphore m_sem;
     mailbox   m_box;
     mailbox   m_ldp;
@@ -626,14 +629,14 @@ class tb_llc extends tb_base;
     task cha_req();
         forever begin
             tb_req req = null;
-            idx_t  idx;
+            llc_t  idx;
             bit    vld;
 
             m_sem.get();
             foreach (m_req[i])
                 if (~m_req[i].m_vld) begin
                     req = m_req[i];
-                    idx = i[mrqIdx-1:0];
+                    idx = i[llcIdx-1:0];
                     break;
                 end
             m_sem.put();
@@ -789,7 +792,7 @@ class tb_mem extends tb_base;
     pa_vif    m_vif;
     pa_mem    m_mem;
 
-    tb_req    m_req [mrqWays-1:0];
+    tb_req    m_req [memWays-1:0];
     semaphore m_sem;
 
     int       m_req_min;
@@ -888,7 +891,7 @@ class tb_mem extends tb_base;
 
                     m_vif.mem_resp_i_valid     <= 1'b1;
                     m_vif.mem_resp_i_bits_err  <= get_err(d);
-                    m_vif.mem_resp_i_bits_idx  <= i[mrqIdx-1:0];
+                    m_vif.mem_resp_i_bits_idx  <= i[memIdx-1:0];
                     m_vif.mem_resp_i_bits_rnw  <= req.m_rnw;
                     m_vif.mem_resp_i_bits_data <= req.m_data;
 

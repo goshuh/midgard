@@ -26,11 +26,11 @@ class PTW(P: Param, N: Int) extends Module {
   // io
 
   // slightly reusable in the future
-  val vlb_req_i  = IO(Vec(N, Flipped(Decoupled(new VLBReq(P)))))
+  val vlb_req_i  = IO(Vec(N, Flipped(Decoupled(new VLBReq  (P)))))
   val vlb_resp_o = IO(Vec(N,             Valid(new VLBRange(P))))
 
-  val mem_req_o  = IO(               Decoupled(new MemReq(P)))
-  val mem_resp_i = IO(       Flipped(Decoupled(new MemResp(P))))
+  val mem_req_o  = IO(               Decoupled(new MemReq  (P)))
+  val mem_resp_i = IO(       Flipped(Decoupled(new MemResp (P))))
 
   val satp_i     = IO(                   Input(UInt(P.mcnBits.W)))
   val idle_o     = IO(                  Output(Bool()))
@@ -55,7 +55,7 @@ class PTW(P: Param, N: Int) extends Module {
   val arb_sel = dontTouch(Wire(UInt(N.W)))
   val arb_gnt = EnQ(arb_rdy, arb_sel)
 
-  val vlb_req_vld     = vlb_req_i.map(_.valid)
+  val vlb_req_vld     = vlb_req_i.map(_.valid).U
   val vlb_req_vld_any = Any(vlb_req_vld) && arb_rdy
 
   if (N > 1) {
@@ -79,7 +79,7 @@ class PTW(P: Param, N: Int) extends Module {
   // b-tree
 
   val mem_btn     = mem_resp_i.bits.data.asTypeOf(new VLBTNode(P))
-  val mem_btn_vld = mem_btn.vlb.map(_.vld)
+  val mem_btn_vld = mem_btn.vlb.map(_.vld).U
 
   val ptw_src_q   = dontTouch(Wire(UInt(N.W)))
   val ptw_vpn_q   = dontTouch(Wire(UInt(P.vpnBits.W)))
@@ -118,7 +118,7 @@ class PTW(P: Param, N: Int) extends Module {
                                                 !ptw_lt(i) &&  prv_lt    ||
                                                 !ptw_lt(i) && !prv_gt),
                               ptw_upd)
-  
+
     if (P.dbg)
       assert(ptw_step -> (mem_btn.vlb(i).bound >= mem_btn.vlb(i    ).base))
     if (P.dbg && (i > 0))
@@ -130,12 +130,12 @@ class PTW(P: Param, N: Int) extends Module {
   // 2. gt is not 0000/1000/1100/1110/1111
   // 3. lt is not 1111/0111/0011/0001/0000
   val ptw_mis_cfg = ptw_step && (Any(ptw_err_q) ||
-                                 Any(OrL(ptw_gt_q) & ~ptw_gt_q) ||
-                                 Any(OrR(ptw_lt_q) & ~ptw_lt_q))
+                                 Any(OrL(ptw_gt_q.U) & ~ptw_gt_q.U) ||
+                                 Any(OrR(ptw_lt_q.U) & ~ptw_lt_q.U))
 
   // not exact
   // the hit entry is also selected, but the mangled result is never used
-  val ptw_sel     = mem_btn_vld & (~ptw_gt_q ## true.B) & (true.B ## ~ptw_lt_q)
+  val ptw_sel     = mem_btn_vld & (~ptw_gt_q.U ## true.B) & (true.B ## ~ptw_lt_q.U)
 
   val ptw_hit_any = Any(ptw_hit_q)
   val ptw_sel_any = Any(ptw_sel)
@@ -169,7 +169,7 @@ class PTW(P: Param, N: Int) extends Module {
   // fsm
 
   // vlb wants to kill ptw
-  val ptw_kill_nq = Any(ptw_src_q & vlb_req_i.map(_.bits.kill))
+  val ptw_kill_nq = Any(ptw_src_q & vlb_req_i.map(_.bits.kill).U)
   val ptw_kill    = dontTouch(Wire(Bool()))
 
   val mem_fsm_en  = dontTouch(Wire(Bool()))

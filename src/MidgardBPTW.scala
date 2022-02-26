@@ -16,16 +16,18 @@ class LLCResp(val P: Param) extends Bundle {
   val data = UInt(P.clBits.W)
 }
 
-class MemReq (val P: Param) extends Bundle {
-  val idx  = UInt(P.mrqIdx.W)
+class MemReq (val P: Param, val w: Int = 0) extends Bundle {
+  val wid  = if (w <= 0) P.mrqIdx else w
+  val idx  = UInt(wid.W)
   val rnw  = Bool()
   val mcn  = UInt(P.mcnBits.W)
   val pcn  = UInt(P.pcnBits.W)
   val data = UInt(P.clBits.W)
 }
 
-class MemResp(val P: Param) extends Bundle {
-  val idx  = UInt(P.mrqIdx.W)
+class MemResp(val P: Param, val w: Int = 0) extends Bundle {
+  val wid  = if (w <= 0) P.mrqIdx else w
+  val idx  = UInt(wid.W)
   val err  = Bool()
   val rnw  = Bool()
   val data = UInt(P.clBits.W)
@@ -60,8 +62,8 @@ object LLCReq {
 }
 
 object MemReq {
-  def apply(P: Param, i: UInt, r: Bool, m: UInt, p: UInt, d: UInt): MemReq = {
-    val ret = Wire(new MemReq(P))
+  def apply(P: Param, i: UInt, r: Bool, m: UInt, p: UInt, d: UInt, w: Int = 0): MemReq = {
+    val ret = Wire(new MemReq(P, w))
 
     ret.idx  := i
     ret.rnw  := r
@@ -73,13 +75,13 @@ object MemReq {
 }
 
 object MemResp {
-  def apply(P: Param, i: UInt, e: Bool, r: Bool, d: UInt): MemResp = {
-    val ret = Wire(new MemResp(P))
+  def apply(P: Param, i: UInt, e: Bool, r: Bool, d: UInt, w: Int = 0): MemResp = {
+    val ret = Wire(new MemResp(P, w))
 
     ret.idx  := i
     ret.err  := e
     ret.rnw  := r
-    ret.data := DontCare
+    ret.data := d
     ret
   }
 }
@@ -156,7 +158,7 @@ class PTW(P: Param) extends Module {
   val ptw_lvl_bot = ptw_lvl_q(P.ptwLvl - 1)
 
   // invalid huge page level range
-  val ptw_lvl_inv = Any(lvl_inv_idx.map(ptw_lvl_q(_)))
+  val ptw_lvl_inv = Any(lvl_inv_idx.map(ptw_lvl_q(_)).U)
 
   val llc_vld     = ptw_vld_q && !ptw_dir_q
   val mrq_vld     = ptw_vld_q &&  ptw_dir_q
@@ -360,6 +362,7 @@ class PTW(P: Param) extends Module {
                              true.B,
                              ptw_mdn_q(P.mdnBits := P.clWid - 3),
                              ptw_pdn_q(P.pdnBits := P.clWid - 3),
-                             0.U)
+                             0.U,
+                             P.llcIdx)
   mrq_resp_i.ready := true.B
 }

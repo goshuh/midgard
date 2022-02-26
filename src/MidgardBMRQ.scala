@@ -8,6 +8,7 @@ import  midgard.util._
 
 class MRQEntry(val P: Param) extends Bundle {
   val src  = UInt(2.W)
+  val idx  = UInt(P.llcIdx.W)
   val rnw  = Bool()
   val err  = Bool()
   val mcn  = UInt(P.mcnBits.W)
@@ -25,19 +26,16 @@ class MRQ(val P: Param) extends Module {
   // --------------------------
   // io
 
-  val ptw_ack_o  = IO(           Output(UInt(P.mrqIdx.W)))
-  val ptc_ack_o  = IO(           Output(UInt(P.mrqIdx.W)))
+  val ptw_req_i  = IO(Flipped(Decoupled(new MemReq (P, P.llcIdx))))
+  val ptw_resp_o = IO(        Decoupled(new MemResp(P, P.llcIdx)))
 
-  val ptw_req_i  = IO(Flipped(Decoupled(new MemReq(P))))
-  val ptw_resp_o = IO(        Decoupled(new MemResp(P)))
+  val ptc_req_i  = IO(Flipped(Decoupled(new MemReq (P, P.llcIdx))))
+  val ptc_resp_o = IO(        Decoupled(new MemResp(P, P.llcIdx)))
 
-  val ptc_req_i  = IO(Flipped(Decoupled(new MemReq(P))))
-  val ptc_resp_o = IO(        Decoupled(new MemResp(P)))
-
-  val mlb_req_o  = IO(        Decoupled(new MLBReq(P)))
+  val mlb_req_o  = IO(        Decoupled(new MLBReq (P)))
   val mlb_resp_i = IO(Flipped(    Valid(new MLBResp(P))))
 
-  val mem_req_o  = IO(        Decoupled(new MemReq(P)))
+  val mem_req_o  = IO(        Decoupled(new MemReq (P)))
   val mem_resp_i = IO(Flipped(Decoupled(new MemResp(P))))
 
 
@@ -66,9 +64,15 @@ class MRQ(val P: Param) extends Module {
   val mlb_req      = mlb_req_o.fire()
   val mlb_resp     = mlb_resp_i.fire()
 
-  val mem_req      = mem_req_o.fire()
-  val mem_resp     = mem_resp_i.fire()
-  val mem_resp_wnr = Non(mem_resp_i.bits.rnw)
+  // combination of real and fake reqs/resps
+  val mem_req_vld  = dontTouch(Wire(Bool()))
+  val mem_req_rdy  = dontTouch(Wire(Bool()))
+  val mem_resp_vld = dontTouch(Wire(Bool()))
+  val mem_resp_rdy = dontTouch(Wire(Bool()))
+  val mem_resp_pld = dontTouch(Wire(new MemResp(P, P.llcIdx)))
+
+  val mem_req      = mem_req_vld  && mem_req_rdy
+  val mem_resp     = mem_resp_vld && mem_resp_rdy
 
 
   //
@@ -102,15 +106,16 @@ class MRQ(val P: Param) extends Module {
   val mrq_mlb_req  = dontTouch(Wire(Vec(P.mrqWays, Bool())))
   val mrq_mlb_resp = dontTouch(Wire(Vec(P.mrqWays, Bool())))
   val mrq_mem_req  = dontTouch(Wire(Vec(P.mrqWays, Bool())))
-  val mrq_mem_sel  = dontTouch(Wire(Vec(P.mrqWays, Bool())))
   val mrq_mem_resp = dontTouch(Wire(Vec(P.mrqWays, Bool())))
   val mrq_fwd      = dontTouch(Wire(Vec(P.mrqWays, Bool())))
 
-  val mrq_set_raw  = PrR(mrq_inv)
-  val mrq_clr_raw  = Dec(mem_resp_i.bits.idx)
-  val mrq_set      = EnQ(req_vld,   mrq_set_raw)
-  val mrq_clr      = EnQ(mem_resp,  mrq_clr_raw)
-  val mrq_set_mul  = Any(mrq_inv & ~mrq_set_raw)
+  val mrq_set_raw  = dontTouch(Wire(UInt(P.mrqWays.W)))
+  val mrq_clr_raw  = dontTouch(Wire(UInt(P.mrqWays.W)))
+  val mrq_mem_sel  = dontTouch(Wire(UInt(P.mrqWays.W)))
+
+  val mrq_set      = EnQ(req_vld,     mrq_set_raw)
+  val mrq_clr      = EnQ(mem_resp,    mrq_clr_raw)
+  val mrq_set_mul  = Any(mrq_inv.U & ~mrq_set_raw)
 
   // starting state
   val mrq_set_nxt  = req_fwd_any ?? mrq_fsm_idle    ::
@@ -137,10 +142,11 @@ class MRQ(val P: Param) extends Module {
     }
 
     // current slot is younger/older than
-    val yts = mrq_vld & age_q(i)
-    val ots = mrq_vld & age_q.map(_(i))
+    val yts = mrq_vld.U & age_q(i).U
+    val ots = mrq_vld.U & age_q.map(_(i)).U
 
     mrq_q(i).rnw  := RegEnable(req_pld.rnw, mrq_set(i))
+    mrq_q(i).idx  := RegEnable(req_pld.idx, mrq_set(i))
     mrq_q(i).mcn  := RegEnable(req_pld.mcn, mrq_set(i))
 
     // variable fields
@@ -149,8 +155,16 @@ class MRQ(val P: Param) extends Module {
                                mrq_set(i) ||
                                req_fwd(i) && mrq_vld(i) && req_pld.rnw)
 
-    mrq_q(i).err  := RegEnable(mrq_clr(i) && mem_resp_i.bits.err,
+    // page fault
+    val mlb_err = mrq_mlb_resp(i) && mlb_resp_i.valid &&
+                     (mlb_resp_i.bits.err     ||
+                    !(mlb_resp_i.bits.attr(0) || mrq_q(i).rnw))
+
+    mrq_q(i).err  := RegEnable(mlb_err    ||
+                               mrq_clr(i) && mem_resp_pld.err,
+                               false.B,
                                mrq_set(i) ||
+                               mlb_err    ||
                                mrq_clr(i))
 
     mrq_q(i).pcn  := RegEnable(mrq_set(i) ?? req_pld.pcn ::
@@ -158,9 +172,9 @@ class MRQ(val P: Param) extends Module {
                                mrq_set(i) && ptw_req ||
                                mlb_resp   && mrq_mlb_resp(i))
 
-    mrq_q(i).data := RegEnable(mrq_set(i) ?? req_pld.data :: mem_resp_i.bits.data,
+    mrq_q(i).data := RegEnable(mrq_set(i) ?? req_pld.data :: mem_resp_pld.data,
                                mrq_set(i) && req_wnr ||
-                               mrq_clr(i) && mem_resp_wnr)
+                               mrq_clr(i) && mem_resp_pld.rnw)
 
     // same-line in ma space
     val hit = req_vld && mrq_q(i).hit(req_pld.mcn)
@@ -173,7 +187,7 @@ class MRQ(val P: Param) extends Module {
     // 3. waiting for forwarding
     dep_q(i) := RegEnable(req_dep, mrq_set(i))
 
-    req_fwd(i) := req_dep(i) && Non(ots & dep_q.map(_(i))) ||
+    req_fwd(i) := req_dep(i) && Non(ots & dep_q.map(_(i)).U) ||
                   mrq_fwd(i) && hit
 
     // fsm
@@ -198,7 +212,7 @@ class MRQ(val P: Param) extends Module {
         mrq_fsm_nxt := mrq_fsm_mem_req
       }
       is (mrq_fsm_mem_req) {
-        mrq_fsm_en  := mem_req_o.ready && mrq_mem_sel(i)
+        mrq_fsm_en  := mem_req_rdy && mrq_mem_sel(i)
         mrq_fsm_nxt := mrq_fsm_mem_resp
       }
       is (mrq_fsm_mem_resp) {
@@ -233,23 +247,12 @@ class MRQ(val P: Param) extends Module {
                        mrq_fsm_is_fwd  && !req_fwd_sel(i)
 
     // also arbitrarized
-    mrq_mlb_req (i) := mrq_fsm_is_mlb_req  && Non(yts & raw_mlb_req)
+    mrq_mlb_req (i) := mrq_fsm_is_mlb_req  && Non(yts & raw_mlb_req.U)
     mrq_mlb_resp(i) := mrq_fsm_is_mlb_resp
-    mrq_mem_req (i) := mrq_fsm_is_mem_req  && Non(yts & raw_mem_req)
+    mrq_mem_req (i) := mrq_fsm_is_mem_req  && Non(yts & raw_mem_req.U)
     mrq_mem_resp(i) := mrq_fsm_is_mem_resp
     mrq_fwd     (i) := mrq_fsm_is_fwd
   }
-
-  // mem req may have stability issue due to mlb
-  val mrq_mem_vld_q = RegEnable(mem_req_o.valid && !mem_req_o.ready,
-                                false.B,
-                                mem_req_o.valid)
-
-  val mrq_mem_req_q = RegEnable(mrq_mem_req,
-                                mem_req_o.valid && !mrq_mem_vld_q)
-
-  mrq_mem_sel := mrq_mem_vld_q ?? mrq_mem_req_q ::
-                                  mrq_mem_req
 
   // big partial muxes
   val mrq_fwd_mux = OrM(req_fwd_sel, mrq_q)
@@ -257,43 +260,82 @@ class MRQ(val P: Param) extends Module {
   val mrq_mem_mux = OrM(mrq_mem_sel, mrq_q)
   val mrq_clr_mux = OrM(mrq_clr_raw, mrq_q)
 
+  // fake mem req/resp for faulty access
+  val mem_err_req        = mem_req && mrq_mem_mux.err
+  val mem_err_resp_vld_q = dontTouch(Wire(Bool()))
+
+  mem_err_resp_vld_q := RegEnable(mem_err_req,
+                                  false.B,
+                                  mem_err_req        ||
+                                  mem_err_resp_vld_q && mem_resp_rdy)
+
+  // respect outstanding mem resp (no matter real or fake)
+  mem_req_vld  := Any(raw_mem_req)
+  mem_req_rdy  := mrq_mem_mux.err ?? !(mem_resp_vld && !mem_resp_rdy) ::
+                                       mem_req_o.ready
+
+  // once inserted, fake mem resp has higher priority
+  mem_resp_vld := mem_err_resp_vld_q || mem_resp_i.valid
+  mem_resp_pld := MemResp(P,
+                          mrq_clr_mux.idx,
+                          mem_err_resp_vld_q        || mem_resp_i.bits.err,
+                          mrq_clr_mux.rnw,
+                          mem_err_resp_vld_q ?? 0.U :: mem_resp_i.bits.data,
+                          P.llcIdx)
+
+  // mem req may have stability issue due to mlb
+  val mem_req_vld_q = RegEnable(mem_req_vld && !mem_req_rdy,
+                                false.B,
+                                mem_req_vld)
+
+  val mem_req_ext_q = RegEnable(mrq_mem_req.U,
+                                mem_req_vld && !mem_req_vld_q)
+
+  // also mix in fake mem resp
+  val mem_req_dly_q = RegEnable(mrq_mem_sel,
+                                mem_req)
+
+  mrq_set_raw := PrR(mrq_inv.U)
+  mrq_clr_raw := mem_err_resp_vld_q ?? mem_req_dly_q :: Dec(mem_resp_i.bits.idx)
+  mrq_mem_sel := mem_req_vld_q      ?? mem_req_ext_q :: mrq_mem_req.U
+
+  // at least ptw can issue reqs
   arb_rdy := Any(mrq_inv)
 
   // at most one forwarder
   // if one slot is in fwd state, then all other same-line slots must be idle
-  assert(OHp(req_fwd, true.B))
+  assert(OHp(req_fwd.U, true.B))
 
 
   //
   // output
 
-  val ptx         = dontTouch(Wire(Vec(2, Decoupled(new MemResp(P)))))
+  val ptx         = dontTouch(Wire(Vec(2, Decoupled(new MemResp(P, P.llcIdx)))))
   val ptx_fwd_vld = dontTouch(Wire(Vec(2, Bool())))
   val ptx_mem_rdy = dontTouch(Wire(Vec(2, Bool())))
 
   val ptx_fwd_any = Any(ptx_fwd_vld)
 
   // forwarding occurs only after the slot finishes or is finishing, even for write
-  req_fwd_any := Any(req_fwd & (mrq_fwd | mrq_clr)) && req_pld.rnw && !ptx_fwd_any
+  req_fwd_any := Any(req_fwd.U & (mrq_fwd.U | mrq_clr)) && req_pld.rnw && !ptx_fwd_any
 
   // slot that is currently forwarding
   req_fwd_sel := EnQ(ptx_fwd_any, RegEnable(req_fwd, req_fwd_any))
 
-  // TODO: implicit function not called correctly
-  val fwd_idx  = Enc(req_fwd_any ?? (req_fwd | req_fwd) :: mrq_set_raw)
   val fwd_resp = MemResp(P,
-                         Enc(req_fwd_sel),
+                         mrq_fwd_mux.idx,
                          mrq_fwd_mux.err,
                          mrq_fwd_mux.rnw,
-                         mrq_fwd_mux.data)
+                         mrq_fwd_mux.data,
+                         P.llcIdx)
 
   // 0: ptw
   // 1: llc
   for (i <- 0 until 2) {
     val rdy     = ptx(i).ready
 
-    val fwd_vld = req_fwd_any      && req_src(i)
-    val mem_vld = mem_resp_i.valid && mrq_clr_mux.src(i)
+    val fwd_vld = req_fwd_any  && req_src(i)
+    val mem_vld = mem_resp_vld && mrq_clr_mux.src(i)
 
     // collision
     val fwd_rdy = fwd_vld && rdy
@@ -344,17 +386,19 @@ class MRQ(val P: Param) extends Module {
     ptx_mem_rdy(i) := rdy && (ptx_fsm_is_mem || ptx_fsm_is_pend)
 
     ptx(i).valid := ptx_fsm_is_busy
-    ptx(i).bits  := ptx_fsm_is_fwd ?? fwd_resp :: mem_resp_i.bits
+    ptx(i).bits  := ptx_fsm_is_fwd ?? fwd_resp :: mem_resp_pld
   }
 
   // combine ready's from two channels
   val ptx_mem_rdy_q   = dontTouch(Wire(Vec(2, Bool())))
   val ptx_mem_rdy_byp = dontTouch(Wire(Vec(2, Bool())))
 
+  mem_resp_rdy := All(ptx_mem_rdy_byp)
+
   for (i <- 0 until 2) {
-    ptx_mem_rdy_q  (i) := RegEnable(ptx_mem_rdy(i) && !mem_resp_i.ready,
+    ptx_mem_rdy_q  (i) := RegEnable(ptx_mem_rdy(i) && !mem_resp_rdy,
                                     false.B,
-                                    ptx_mem_rdy(i) ||  mem_resp_i.ready)
+                                    ptx_mem_rdy(i) ||  mem_resp_rdy)
 
     ptx_mem_rdy_byp(i) := ptx_mem_rdy    (i) ||
                           ptx_mem_rdy_q  (i) ||
@@ -365,18 +409,15 @@ class MRQ(val P: Param) extends Module {
   ptw_req_i.ready  := arb_rdy && !(ptc_req_i.valid && mrq_set_mul && arb_q)
   ptc_req_i.ready  := arb_rdy && !(ptw_req_i.valid &&               !arb_q) && mrq_set_mul
 
-  ptw_ack_o        := fwd_idx
-  ptc_ack_o        := fwd_idx
-
   ptw_resp_o       <> ptx(0)
   ptc_resp_o       <> ptx(1)
 
-  mlb_req_o.valid  := Any(mrq_mlb_req)
+  mlb_req_o.valid  := Any(raw_mlb_req)
   mlb_req_o.bits   := MLBReq(P,
                              mrq_mlb_mux.rnw,
                              mrq_mlb_mux.mcn(P.mcnBits := 12 - P.clWid))
 
-  mem_req_o.valid  := Any(mrq_mem_req)
+  mem_req_o.valid  := mem_req_vld && !mrq_mem_mux.err
   mem_req_o.bits   := MemReq(P,
                              Enc(mrq_mem_sel),
                              mrq_mem_mux.rnw,
@@ -384,5 +425,5 @@ class MRQ(val P: Param) extends Module {
                              mrq_mem_mux.pcn,
                              mrq_mem_mux.data)
 
-  mem_resp_i.ready := All(ptx_mem_rdy_byp)
+  mem_resp_i.ready := mem_resp_rdy && !mem_err_resp_vld_q
 }

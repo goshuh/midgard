@@ -109,10 +109,10 @@ class VLB(val P: Param) extends Module {
   // --------------------------
   // io
 
-  val vlb_req_i  = IO(Flipped(    Valid(new VLBReq(P))))
-  val vlb_resp_o = IO(            Valid(new VLBResp(P)))
+  val vlb_req_i  = IO(Flipped(    Valid(new VLBReq  (P))))
+  val vlb_resp_o = IO(            Valid(new VLBResp (P)))
 
-  val ptw_req_o  = IO(        Decoupled(new VLBReq(P)))
+  val ptw_req_o  = IO(        Decoupled(new VLBReq  (P)))
   val ptw_resp_i = IO(Flipped(    Valid(new VLBRange(P))))
 
   val asid_i     = IO(            Input(UInt(P.asidBits.W)))
@@ -177,10 +177,10 @@ class VLB(val P: Param) extends Module {
   val s1_adv     = dontTouch(Wire(Bool()))
   val s1_vld_q   = RegNext  (s0_vld)
   val s1_vpn_q   = RegEnable(s0_vpn, s0_vld)
-  val s1_hit_q   = RegEnable(s0_hit, s0_vld)
+  val s1_hit_q   = RegEnable(s0_hit, s0_vld).U
 
   // qualified
-  val s1_hit_way = s1_hit_q & vld_q
+  val s1_hit_way = s1_hit_q & vld_q.U
   val s1_hit_any = Any(s1_hit_way)
 
   val s1_vld     = s1_vld_q && !kill_i(Prv)

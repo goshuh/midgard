@@ -36,16 +36,16 @@ class MMU(val P: Param) extends Module {
   // --------------------------
   // io
 
-  val llc_req_i  = IO(Flipped(Decoupled(new MemReq(P))))
-  val llc_resp_o = IO(        Decoupled(new MemResp(P)))
+  val llc_req_i  = IO(Flipped(Decoupled(new MemReq (P, P.llcIdx))))
+  val llc_resp_o = IO(        Decoupled(new MemResp(P, P.llcIdx)))
 
-  val llc_req_o  = IO(        Decoupled(new LLCReq(P)))
+  val llc_req_o  = IO(        Decoupled(new LLCReq (P)))
   val llc_resp_i = IO(Flipped(Decoupled(new LLCResp(P))))
 
-  val mem_req_o  = IO(        Decoupled(new MemReq(P)))
+  val mem_req_o  = IO(        Decoupled(new MemReq (P)))
   val mem_resp_i = IO(Flipped(Decoupled(new MemResp(P))))
 
-  val ctl_req_i  = IO(Flipped(Decoupled(new CtlReq())))
+  val ctl_req_i  = IO(Flipped(Decoupled(new CtlReq ())))
   val ctl_resp_o = IO(        Decoupled(new CtlResp()))
 
 
@@ -61,7 +61,7 @@ class MMU(val P: Param) extends Module {
 
   val ctl_q         = dontTouch(Wire(Vec(P.ptwLvl + 1, UInt(P.maBits.W))))
   val ctl_sel       = dontTouch(Wire(Vec(P.ptwLvl + 1, Bool())))
-  val ctl_sel_any   = Any(ctl_sel)
+  val ctl_sel_any   = Any(ctl_sel.U)
   val ctl_wnr       = Non(ctl_req_i.bits.rnw)
 
   val ctl_vld_q     = RegEnable(ctl_req, false.B,   ctl_req || ctl_resp)

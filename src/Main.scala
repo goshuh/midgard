@@ -12,6 +12,8 @@ object Main extends App {
     paBits    = 48,
     clBits    = 512,
 
+    llcIdx    = 3,
+
     vlbWays   = 16,
 
     mlbEn     = true,

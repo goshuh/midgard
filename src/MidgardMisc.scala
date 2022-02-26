@@ -11,24 +11,14 @@ package object util {
 
   // see: https://github.com/chipsalliance/chisel3/issues/1743
 
-  def Any(d: UInt): Bool = {
-    d.orR()
+  def Any[T <: Data](d: T): Bool = {
+    d.asUInt().orR()
   }
-  def All(d: UInt): Bool = {
-    d.andR()
+  def All[T <: Data](d: T): Bool = {
+    d.asUInt().andR()
   }
-  def Non(d: UInt): Bool = {
-    d === 0.U
-  }
-
-  def Any(ds: Bool*): Bool = {
-    Any(Cat(ds))
-  }
-  def All(ds: Bool*): Bool = {
-    All(Cat(ds))
-  }
-  def Non(ds: Bool*): Bool = {
-    Non(Cat(ds))
+  def Non[T <: Data](d: T): Bool = {
+    d.asUInt() === 0.U
   }
 
   def ShL(d: UInt, n: Int): UInt = {
@@ -184,6 +174,21 @@ package object util {
     def ::[S <: Data](p: pair[Bool, S]): T = {
       Mux(p.a, p.b.asInstanceOf[T], d)
     }
+    def V: Vec[Bool] = {
+      VecInit(d.asUInt().asBools())
+    }
+  }
+
+  implicit class withVec[T <: Data](v: Vec[T]) {
+    def U: UInt = {
+      v.asUInt()
+    }
+  }
+
+  implicit class withSeq[T <: Data](s: Seq[T]) {
+    def U: UInt = {
+      Cat(s.map(_.asUInt()).reverse)
+    }
   }
 
   implicit class withDecoupled[T <: Data](d: DecoupledIO[T]) {
@@ -194,14 +199,5 @@ package object util {
       d.bits  := RegEnable(s.bits,
                            s.valid)
     }
-  }
-
-  // any explicit calls are bugs
-  implicit def VecToUInt[T <: Data](v: Vec[T]): UInt = {
-    v.asUInt()
-  }
-
-  implicit def SeqToUInt[T <: Data](v: Seq[T]): UInt = {
-    Cat(v.map(_.asUInt()).reverse)
   }
 }
