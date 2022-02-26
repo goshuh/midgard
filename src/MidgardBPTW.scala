@@ -128,7 +128,7 @@ class PTW(P: Param) extends Module {
   // state
 
   // number of bits from the base in each level of ma translation
-  val lvl_rem     = Seq.tabulate(P.ptwLvl) { l =>
+  val lvl_rem     = Seq.tabulate(P.ptwLvl + 1) { l =>
                       (P.ptwLvl - l) * 9
                     }
 
@@ -240,9 +240,8 @@ class PTW(P: Param) extends Module {
   val ptw_pte = llc_vld   ?? llc_pte   :: mrq_pte
 
   // level can either increase (ror) or decrease (rol)
-  val ptw_lvl_ror = llc_step && !llc_done && !ptw_lvl_top
-  val ptw_lvl_rol = mrq_step && !mrq_done && !ptw_lvl_bot ||
-                    llc_mem
+  val ptw_lvl_ror = llc_step && !llc_done && !ptw_lvl_top && !llc_mem
+  val ptw_lvl_rol = mrq_step && !mrq_done && !ptw_lvl_bot ||  llc_mem
 
   val ptw_lvl_en  = llc_init || ptw_lvl_ror || ptw_lvl_rol
 
@@ -257,9 +256,12 @@ class PTW(P: Param) extends Module {
   ptw_lvl_q := RegEnable(ptw_lvl_nxt,
                          ptw_lvl_en)
 
+  // always onehot during ptw
+  assert(ptw_vld_q -> OHp(ptw_lvl_q, false.B))
+
   // calculate the ma of the pte one cycle earlier
   def gen_pma(l: Int): UInt = {
-    ctl_i(l + 1)(P.maBits :- lvl_rem(l)) ## ptw_mpn(P.mpnBits := lvl_rem(l) - 9)
+    ctl_i(l + 1)(P.maBits :- lvl_rem(l)) ## ptw_mpn(P.mpnBits := lvl_rem(l + 1))
   }
 
   val ptw_mdn_nxt = OrM(ptw_lvl_nxt,
@@ -278,7 +280,7 @@ class PTW(P: Param) extends Module {
   }
 
   // top level consumes ptwTop bits instead of 9 bits for indexing
-  val ptw_pdn_top = ctl_i(0)(P.paBits := P.ptwTop + 3) ## ptw_mpn_q(P.mpnBits :- P.ptwTop)
+  val ptw_pdn_top = ctl_i(0)(P.paBits := P.ptwTop + 3) ## ptw_mdn_q(P.ptwTop.W)
 
   val ptw_pdn_nxt = ptw_pte.ppn ## OrM(ptw_lvl_nxt(P.ptwLvl := 1),
                                        Seq.tabulate(P.ptwLvl - 1)(gen_ppa))

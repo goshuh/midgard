@@ -207,7 +207,7 @@ class PTC(P: Param) extends Module {
                                          P.llcIdx),
                                  llc_req_hit)
 
-  ptw_resp_o.valid := ptc_hit
+  ptw_resp_o.valid := ptc_hit && ptw_req_i.valid
   ptw_resp_o.bits  := ptc_mux
 
   // TODO: timing. for now just pass through
