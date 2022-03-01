@@ -139,23 +139,30 @@ class PTW(P: Param) extends Module {
                       (P.maBits - P.ptwTop - l * 9) > P.paBits
                     }
 
+  // with the consistency requirement of midgard page tables, ptw may reach
+  // the root page table even before reaching the highest level. this occurs
+  // especially when the ma to be translated is within the table range
+  val lvl_top     = Seq.tabulate(P.ptwLvl) { l =>
+                      if (l == 0)
+                        mlb_req_i.bits.mpn(P.ptwTop.W           ) === ctl_i(1)(P.maBits :- P.ptwTop)
+                      else
+                        mlb_req_i.bits.mpn(P.ptwTop + l * 9 :- 9) === ctl_i(1)(P.maBits :- 9)
+                    }.U
+
   // globals
   val ptw_vld_q   = dontTouch(Wire(Bool()))
   val ptw_dir_q   = dontTouch(Wire(Bool()))
   val ptw_mpn_q   = dontTouch(Wire(UInt(P.mpnBits.W)))
 
   val ptw_lvl_q   = dontTouch(Wire(UInt(P.ptwLvl.W)))
+  val ptw_top_q   = dontTouch(Wire(UInt(P.ptwLvl.W)))
   val ptw_mdn_q   = dontTouch(Wire(UInt(P.mdnBits.W)))
   val ptw_pdn_q   = dontTouch(Wire(UInt(P.pdnBits.W)))
 
-  // with the consistency requirement of midgard page tables, ptw may reach
-  // the root page table even before reaching the highest level. this occurs
-  // especially when the ma to be translated is within the table range
-  val ptw_top_q   = dontTouch(Wire(Bool()))
-
-  val ptw_lvl_top = ptw_vld_q && ptw_top_q ||
-                    ptw_lvl_q(0)
+  // at least one level of translation is required
+  val ptw_lvl_top = ptw_lvl_q(0) || Any(ptw_lvl_q & Rev(ptw_top_q))
   val ptw_lvl_bot = ptw_lvl_q(P.ptwLvl - 1)
+  val ptw_lvl_blk = ptw_top_q(P.ptwLvl - 1)
 
   // invalid huge page level range
   val ptw_lvl_inv = Any(lvl_inv_idx.map(ptw_lvl_q(_)).U)
@@ -182,14 +189,18 @@ class PTW(P: Param) extends Module {
   // with the consistency requirement of midgard page tables, the lowest level
   // pte may not necessarily point to a normal data block/page. instead, it may
   // points to a page table page
-  val llc_hit_bot = llc_pte_vld &&                  ptw_lvl_bot
+  val llc_lvl_blk = llc_pte_blk ||  ptw_lvl_blk
+
+  val llc_hit_bot = llc_pte_vld &&  llc_lvl_blk &&  ptw_lvl_bot
   val llc_hit_mem = llc_pte_vld && !llc_pte_blk && !ptw_lvl_bot
   val llc_hit_blk = llc_pte_vld &&  llc_pte_blk && !ptw_lvl_inv
 
   // error cases
   // 1. invalid pte
-  // 2. huge page encountered at an invalid level
+  // 2. non-block leaf pte which is also not for a pte
+  // 3. huge page encountered at an invalid level
   val llc_hit_err = llc_pte_vld &&  llc_pte_blk &&  ptw_lvl_inv ||
+                    llc_pte_vld && !llc_lvl_blk &&  ptw_lvl_bot ||
                    !llc_pte_vld
 
   val llc_hit_end = llc_hit_bot ||  llc_hit_blk ||  llc_hit_err
@@ -217,9 +228,12 @@ class PTW(P: Param) extends Module {
   val mrq_pte_blk = mrq_pte.b
   val mrq_pte_ppn = mrq_pte.ppn
 
-  val mrq_hit_bot = mrq_pte_vld &&                  ptw_lvl_bot
+  val mrq_lvl_blk = mrq_pte_blk ||  ptw_lvl_blk
+
+  val mrq_hit_bot = mrq_pte_vld &&  mrq_lvl_blk &&  ptw_lvl_bot
   val mrq_hit_blk = mrq_pte_vld &&  mrq_pte_blk && !ptw_lvl_inv
   val mrq_hit_err = mrq_pte_vld &&  mrq_pte_blk &&  ptw_lvl_inv ||
+                    mrq_pte_vld && !mrq_lvl_blk &&  ptw_lvl_bot ||
                    !mrq_pte_vld
 
   val mrq_hit_end = mrq_hit_bot ||  mrq_hit_blk ||  mrq_hit_err
@@ -256,6 +270,9 @@ class PTW(P: Param) extends Module {
   ptw_lvl_q := RegEnable(ptw_lvl_nxt,
                          ptw_lvl_en)
 
+  ptw_top_q := RegEnable(ArR(lvl_top),
+                         mlb_req)
+
   // always onehot during ptw
   assert(ptw_vld_q -> OHp(ptw_lvl_q, false.B))
 
@@ -268,10 +285,6 @@ class PTW(P: Param) extends Module {
                         Seq.tabulate(P.ptwLvl)(gen_pma))
 
   ptw_mdn_q := RegEnable(ptw_mdn_nxt,
-                         ptw_lvl_en)
-
-  ptw_top_q := RegEnable(ptw_mdn_nxt(P.mdnBits := 9) === ctl_i(1)(P.maBits := 12),
-                         false.B,
                          ptw_lvl_en)
 
   // index bits in lower levels
@@ -341,7 +354,7 @@ class PTW(P: Param) extends Module {
                                Enc(ptw_lvl_q),
                                ptw_mpn(P.mpnBits := P.mlbIdx),
                                ptw_pte.ppn,
-                               ptw_pte.d ## ptw_pte.a ## (ptw_pte.w || !ptw_pte.b))
+                               ptw_pte.d ## ptw_pte.a ## (ptw_pte.w || ptw_lvl_blk))
 
   ptc_req_o.valid  := llc_vld && req_fsm_is_idle
   ptc_req_o.bits   := PTCRdReq(P,

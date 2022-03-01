@@ -14,7 +14,7 @@ module tb;
         verif::plusargs arg = new("tb.");
 
         rst_time   = arg.get_int("rst", 25);
-        end_time   = arg.get_int("end", 10000000);
+        end_time   = arg.get_int("end", 100000000);
         clk_period = arg.get_int("clk", 10) / 2;
 
         clock = 1'b0;
@@ -158,7 +158,7 @@ module tb;
         $fsdbDumpMDA();
 
         forever begin
-            repeat (100000)
+            repeat (10000000)
                 @(posedge clock);
 
             $fsdbDumpflush();

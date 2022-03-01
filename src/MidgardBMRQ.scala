@@ -189,10 +189,10 @@ class MRQ(val P: Param) extends Module {
     // same-line slots which are
     // 1. busy without dependency (youngest)
     // 3. waiting for forwarding
-    dep_q(i) := RegEnable(req_dep, mrq_set(i))
+    dep_q  (i) := RegEnable(req_dep, mrq_set(i))
 
-    req_fwd(i) := req_dep(i) && Non(ots & dep_q.map(_(i)).U) ||
-                  mrq_fwd(i) && hit
+    req_fwd(i) := req_dep(i) && !mrq_q(i).err && Non(ots & dep_q.map(_(i)).U) ||
+                  mrq_fwd(i) && !mrq_q(i).err && hit
 
     // fsm
     val mrq_fsm_en  = dontTouch(Wire(Bool()))
@@ -310,6 +310,9 @@ class MRQ(val P: Param) extends Module {
   // at most one forwarder
   // if one slot is in fwd state, then all other same-line slots must be idle
   assert(OHp(req_fwd.U, true.B))
+
+  // no support for either ptw or ptc issuing multiple reqs with the same ma
+  assert(Non(OrM(req_dep, mrq_q.map(_.src)) & req_src))
 
 
   //

@@ -41,6 +41,26 @@ package object util {
     else
       0.U(n.W) ## d(w - 1, n)
   }
+  def SSL(d: UInt, n: Int): UInt = {
+    val w = d.getWidth
+
+    if (n == 0)
+      d
+    else if (n >= w)
+     ~0.U(w.W)
+    else
+      d(w - n - 1, 0) ## ~0.U(n.W)
+  }
+  def SSR(d: UInt, n: Int): UInt = {
+    val w = d.getWidth
+
+    if (n == 0)
+      d
+    else if (n >= w)
+     ~0.U(w.W)
+    else
+     ~0.U(n.W) ## d(w - 1, n)
+  }
 
   def RoL(d: UInt, n: Int): UInt = {
     val w = d.getWidth
@@ -84,6 +104,10 @@ package object util {
     shf(RoR, d, s, 0)
   }
 
+  def Rev(d: UInt): UInt = {
+    Cat(d.asBools()).asUInt()
+  }
+
   def Rep(d: UInt, n: Int ): UInt = {
     Cat(Seq.fill(n)(d))
   }
@@ -104,17 +128,29 @@ package object util {
   }
 
   @tailrec
-  private def orx(f: (UInt, Int) => UInt, d: UInt, n: Int): UInt = {
+  private def rex(f: (UInt, Int) => UInt, o: (UInt, UInt) => UInt, d: UInt, n: Int): UInt = {
     if (n >= d.getWidth)
       d
     else
-      orx(f, d | f(d, n), n << 1)
+      rex(f, o, o(d, f(d, n)), n << 1)
+  }
+  private def or (a: UInt, b: UInt): UInt = {
+    a | b
+  }
+  private def ar (a: UInt, b: UInt): UInt = {
+    a & b
   }
   def OrL(d: UInt): UInt = {
-    orx(ShL, d, 1)
+    rex(ShL, or, d, 1)
   }
   def OrR(d: UInt): UInt = {
-    orx(ShR, d, 1)
+    rex(ShR, or, d, 1)
+  }
+  def ArL(d: UInt): UInt = {
+    rex(SSL, ar, d, 1)
+  }
+  def ArR(d: UInt): UInt = {
+    rex(SSR, ar, d, 1)
   }
 
   private def pri(f: UInt => UInt, g: (UInt, Int) => UInt, d: UInt): UInt = {

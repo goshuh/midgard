@@ -42,48 +42,6 @@ class tb_base extends verif::object;
     // tb usage
     static  int TO_MAX = 5000;
 
-    // common functions
-    function bit [maBits-4:0] add_mcd(input mcn_t m);
-        return {m, 3'b0};
-    endfunction
-
-    function bit [paBits-4:0] add_pcd(input pcn_t p);
-        return {p, 3'b0};
-    endfunction
-
-    function bit [519:0] set_err(input bit [511:0] d, bit e);
-        return {e, d[7*64+:64],
-                e, d[6*64+:64],
-                e, d[5*64+:64],
-                e, d[4*64+:64],
-                e, d[3*64+:64],
-                e, d[2*64+:64],
-                e, d[1*64+:64],
-                e, d[0*64+:64]};
-    endfunction
-
-    function bit [511:0] clr_err(input bit [519:0] d);
-        return {d[7*65+:64],
-                d[6*65+:64],
-                d[5*65+:64],
-                d[4*65+:64],
-                d[3*65+:64],
-                d[2*65+:64],
-                d[1*65+:64],
-                d[0*65+:64]};
-    endfunction
-
-    function bit get_err(input bit [519:0] d);
-        return  d[8*65-1] |
-                d[7*65-1] |
-                d[6*65-1] |
-                d[5*65-1] |
-                d[4*65-1] |
-                d[3*65-1] |
-                d[2*65-1] |
-                d[1*65-1];
-    endfunction
-
 endclass
 
 
@@ -190,8 +148,11 @@ typedef virtual tb_mem_intf pa_vif;
 //
 // components
 
+typedef class tb_env;
+
 typedef verif::memory #(tb_base::mdnBits, 64) ma_mem;
-typedef verif::memory #(tb_base::pdnBits, 65) pa_mem;
+typedef verif::memory #(tb_base::pdnBits, 64) pa_mem;
+typedef verif::memory #(tb_base::pcnBits,  1) pe_mem;
 
 
 typedef struct {
@@ -205,13 +166,16 @@ class tb_gen extends tb_base;
 
    `register(tb_gen);
 
+    ma_mem     m_llc;
     pa_mem     m_mem;
+    pe_mem     m_err;
 
     bit [63:0] m_ctl     [ptwLvl:0];
     bit [ 8:0] m_idx     [ptwLvl:1][$];
     int        m_map     [ppn_t];
     int        m_shf     [ptwLvl:1];
-    ppn_t      m_msk     [ptwLvl:1];
+    mdn_t      m_mdm     [ptwLvl:1];
+    pdn_t      m_pdm     [ptwLvl:1];
 
     int        m_dis_old [ptwLvl:1][];
     int        m_dis_err [ptwLvl:1][];
@@ -232,7 +196,9 @@ class tb_gen extends tb_base;
         m_mod  = "gen";
         m_inst =  this;
 
+       `get(ma_mem, "llc", m_llc);
        `get(pa_mem, "mem", m_mem);
+       `get(pe_mem, "err", m_err);
 
         init();
         hook();
@@ -244,6 +210,10 @@ class tb_gen extends tb_base;
         // level-i+1 page table pages
         bit [mpnBits+66:0] all = {{64{1'b1}}, {mpnBits+3{1'b0}}};
         ppn_t              top = {    1'b1,   {ppnBits-1{1'b0}}};
+
+        m_llc.clr();
+        m_mem.clr();
+        m_err.clr();
 
         // pa root
         m_ctl[  0] = {top, 12'b0} | {{paBits-1{1'b0}}, 1'b1};
@@ -265,14 +235,16 @@ class tb_gen extends tb_base;
 
             m_ctl[i] = (maBits > 63) ? shf[63:0] : {{64-maBits{shf[maBits-1]}}, shf[maBits-1:0]};
             m_shf[i] = (ptwLvl -  i) * 9;
-            m_msk[i] = (i == 1) ? {{ppnBits-ptwTop{1'b0}}, {ptwTop{1'b1}}} :
-                                  {{ppnBits-9     {1'b0}}, {     9{1'b1}}};
+
+            m_mdm[i] = ~m_ctl[i][maBits-1:3];
+            m_pdm[i] = (i == 1) ? {{pdnBits-ptwTop{1'b0}}, {ptwTop{1'b1}}} :
+                                  {{pdnBits-9     {1'b0}}, {     9{1'b1}}};
         end
 
        `info($sformatf("lvl: %0d", ptwLvl));
 
         for (int i = 0; i <= ptwLvl; i++)
-           `info($sformatf("ctl: %0x", m_ctl[i]));
+           `info($sformatf("ctl: %x", m_ctl[i]));
     endfunction
 
     virtual function void hook();
@@ -282,8 +254,8 @@ class tb_gen extends tb_base;
             m_dis_blk[i] = new [3];
 
             m_dis_old[i] = '{10, 40};
-            m_dis_err[i] = '{10,  0, 0};
-            m_dis_blk[i] = '{10,  0, 0};
+            m_dis_err[i] = '{10,  1,  1};
+            m_dis_blk[i] = '{10, (i > 3) ? 1 : 0, 1};
         end
     endfunction
 
@@ -327,35 +299,30 @@ class tb_gen extends tb_base;
 
     virtual function ppn_t gen_ppn(input bit ptp, int lvl);
         // num of 4k pages to allocate
-        int     yes = 0;
         longint num = ptp ? 1 << ((ptwLvl - lvl) * 9) : 1;
         longint msk = ~(num - 1);
         ppn_t   ppn;
+        ppn_t   prv;
 
         do begin
-            yes = 0;
-
            `rands(ppn);
 
-            // page table pages are placed at the top the pa space, and the
+            // page table pages are placed at the top the pa space, while the
             // first page aligns to the given boundary
             ppn = {ptp, ppn[ppnBits-2:0]} & msk[ppnBits-1:0];
+            prv =  ppn;
 
-            // no single page is allocated twice
-            for (longint i = 0; i < num; i++)
-                if (m_map.exists(ppn + i[ppnBits-1:0])) begin
-                    yes = 1;
-                    break;
-                end
-        end while (yes);
+        // no single page is allocated twice
+        end while (m_map.prev(prv) && (prv + m_map[prv] >= ppn) ||
+                   m_map.next(prv) && (ppn + num        >= prv));
 
-        for (longint i = 0; i < num; i++)
-            m_map[ppn + i[ppnBits-1:0]] = 1;
+        m_map[ppn] = num;
 
         return ppn;
     endfunction
 
     virtual function tb_gen_res walk(input mpn_t mpn);
+        mdn_t mdn;
         ppn_t ppn = m_ctl[0][paBits-1:12];
         pdn_t pdn = m_ctl[0][paBits-1: 3];
 
@@ -366,14 +333,18 @@ class tb_gen extends tb_base;
             bit [64:0] pte;
             bit [ 1:0] err;
             bit [ 1:0] blk;
-            bit        hit;
+            int        j = ptwLvl - i + 1;
 
             // no loss of bits
-            mpn_t shf =   mpn >> m_shf[i];
-            ppn_t top = {{pdnBits-9{1'b0}}, shf[8:0]};
+            mdn_t msh =  {9'b0, mpn} >> m_shf[j];
+            mpn_t psh =   mpn        >> m_shf[i];
+            pdn_t top = {{pdnBits-9{1'b0}}, psh[8:0]};
 
-            pdn = pdn & ~m_msk[i] | // base
-                  top &  m_msk[i];  // idx
+            mdn = m_ctl[j][maBits-1:3] & ~m_mdm[j] | // base
+                  msh                  &  m_mdm[j];  // idx
+
+            pdn = pdn & ~m_pdm[i] | // base
+                  top &  m_pdm[i];  // idx
 
            `rands(err, with { err dist {
                 2'h0 := m_dis_err[i][0], // normal
@@ -390,13 +361,12 @@ class tb_gen extends tb_base;
             blk[0] = blk[0] & (i <  ptwLvl) |
                     ~blk[1] & (i == ptwLvl);
 
-            hit = m_mem.chk(pdn);
-
-            if (hit) begin
+            if (m_mem.chk(pdn)) begin
                 pte =  m_mem.get_b(pdn);
                 ppn =  pte[paBits-3:10];
 
-                err[0] =  pte[64];
+                // coarse-grain. depending on the width of the mem bus
+                err[0] =  m_err.get_b(pdn[pdnBits-1:3]);
                 err[1] = ~pte[ 0];
                 blk[0] =  pte[ 1];
             end else begin
@@ -413,9 +383,16 @@ class tb_gen extends tb_base;
                       ~err[1]}; // vld
 
                 m_mem.set_b(pdn, pte);
+
+                if (err[0])
+                    m_err.set_b(pdn[pdnBits-1:3], 1'b1);
             end
 
-           `info($sformatf("ptw: %x %x %x %x", {pdn, 3'b0}, err, ppn, hit));
+           `info($sformatf("ptw: %x %x %x: %x %x %x %x %x",
+                            mdn[mdnBits-1:9], mdn[mdnBits-1:3], mdn,
+                            pdn[pdnBits-1:9], pdn[pdnBits-1:3], pdn,
+                            pte,
+                            err));
 
             if (blk[0]) begin
                 longint msk = (1 << ((ptwLvl - i) * 9)) - 1;
@@ -457,7 +434,7 @@ class tb_req extends tb_base;
    `register(tb_req);
 
     bit         m_vld;
-    bit         m_ldp;
+    bit         m_pte;
     bit         m_err;
     bit         m_rnw;
     llc_t       m_idx;
@@ -470,6 +447,7 @@ class tb_req extends tb_base;
 
     ma_mem      m_llc;
     pa_mem      m_mem;
+    pe_mem      m_pem;
 
     function new();
         verif::plusargs arg = new("req.");
@@ -480,15 +458,16 @@ class tb_req extends tb_base;
         m_mod = "req";
 
         m_vld =  1'b0;
-        m_ldp =  1'b0;
+        m_pte =  1'b0;
         m_cnt =  0;
         m_dly = `urand(min, max);
 
        `get(ma_mem, "llc", m_llc);
        `get(pa_mem, "mem", m_mem);
+       `get(pe_mem, "err", m_pem);
     endfunction
 
-    virtual function void init();
+    virtual function void init(input bit i = 1'b0);
         tb_gen     gen = tb_gen::get_inst();
         tb_gen_res res;
         bit [11:6] pof;
@@ -497,30 +476,34 @@ class tb_req extends tb_base;
        `rands(m_rnw);
        `rands(m_data);
 
-        res = m_ldp ? gen.walk(m_mcn[mcnBits-1:6]) :
-                      gen.main();
+        res = i ? gen.main() :
+                  gen.walk(m_mcn[mcnBits-1:6]);
 
-        m_err =  res.err;
         m_mcn = {res.mpn, pof};
         m_pcn = {res.ppn, pof};
+        m_err =  res.err | m_pem.get_b(m_pcn);
 
         // don't try to overwrite the reserved pte region
-        if (m_ldp)
+        if (m_pte)
             m_rnw = 1'b1;
 
-       `info($sformatf("%x %x -> %x %x %x", m_mcn, m_vld, m_pcn, res.ppn, m_err));
+       `info($sformatf("res: %x %x %x: %x %x %x %x",
+                        m_mcn[mcnBits-1:6], m_mcn, {m_mcn, 3'b0},
+                        m_pcn[pcnBits-1:6], m_pcn, {m_pcn, 3'b0},
+                        m_err));
     endfunction
 
     virtual function void body();
         m_vld = 1'b1;
 
         if (m_rnw) begin
-            pdn_t pdn = add_pcd(m_pcn);
+            pdn_t pdn = {m_pcn, 3'b0};
 
-            if (m_ldp || m_mem.chk(pdn, 8))
-                m_data = clr_err(m_mem.get_d(pdn));
-            else if (!m_ldp)
-                m_mem.set_d(pdn, set_err(m_data, m_err));
+            // fortunately, we don't have any data cache
+            if (m_pte)
+                m_data = m_mem.get_d(pdn);
+            else
+                m_mem.set_d(pdn, m_data);
         end
     endfunction
 
@@ -528,8 +511,8 @@ class tb_req extends tb_base;
         m_vld = 1'b0;
         m_cnt = 0;
 
-        if (m_ldp && m_rnw && !m_err)
-            m_llc.set_d(add_mcd(m_mcn), m_data);
+        if (m_pte && !m_err)
+            m_llc.set_d({m_mcn, 3'b0}, m_data);
     endfunction
 
     virtual function string show();
@@ -550,12 +533,15 @@ class tb_seq extends tb_base;
 
    `register(tb_seq);
 
+    tb_env  m_env;
+
     mailbox m_box;
     event   m_evt;
 
     function new();
         m_mod = "seq";
 
+       `get(tb_env,  "env", m_env);
        `get(mailbox, "box", m_box);
     endfunction
 
@@ -572,25 +558,30 @@ class tb_seq extends tb_base;
         // cache is everywhere. make things simple
         tb_req reqs [$];
 
-        for (int i = 0; i < num; i++) begin
-            tb_req req;
+        forever begin
+            // from tb_ctl
+            m_env.blk(2);
 
-           `spawn(str, req);
+            reqs.delete();
 
-            reqs.push_back(req);
+            for (int i = 0; i < num; i++) begin
+                tb_req req;
 
-            req.init();
-            req.body();
-            req.post();
+               `spawn(str, req);
+
+                reqs.push_back(req);
+
+                req.init(1'b1);
+                req.body();
+                req.post();
+            end
+
+            foreach (reqs[i])
+                put(reqs[i]);
+
+            // to tb_llc
+            m_env.set(3);
         end
-
-        // triggered in tb_drv
-        @(m_evt);
-
-        foreach (reqs[i])
-            put(reqs[i]);
-
-       `info("done.");
     endtask
 
 endclass
@@ -598,10 +589,12 @@ endclass
 
 class tb_ctl extends tb_base;
 
-    tb_vif m_vif;
-
+    tb_env m_env;
     tb_seq m_seq;
     tb_gen m_gen;
+    tb_vif m_vif;
+
+    event  m_evt;
 
     function new(ref tb_vif vif);
         m_mod = "ctl";
@@ -609,28 +602,36 @@ class tb_ctl extends tb_base;
         m_vif =  vif;
         m_gen =  tb_gen::get_inst();
 
+       `get(tb_env, "env", m_env);
        `get(tb_seq, "seq", m_seq);
     endfunction
 
     task main();
-        for (int i = 0; i <= ptwLvl; i++) begin
-            m_vif.ctl_req_i_valid     <= 1'b1;
-            m_vif.ctl_req_i_bits_rnw  <= 1'b0;
-            m_vif.ctl_req_i_bits_addr <= i[3:0];
-            m_vif.ctl_req_i_bits_data <= m_gen.m_ctl[i];
-           `waitt(m_vif.ctl_req_i_ready,  TO_MAX, "req timeout");
-            m_vif.ctl_req_i_valid     <= 1'b0;
+        forever begin
+            // from tb_llc
+            m_env.blk(1);
 
-            m_vif.ctl_resp_o_ready    <= 1'b1;
-           `waitt(m_vif.ctl_resp_o_valid, TO_MAX, "resp timeout");
-            m_vif.ctl_resp_o_ready    <= 1'b0;
+            m_gen.init();
 
-            if (~m_vif.ctl_resp_o_bits_sel)
-               `err($sformatf("failed: %0d", i));
+            for (int i = 0; i <= ptwLvl; i++) begin
+                m_vif.ctl_req_i_valid     <= 1'b1;
+                m_vif.ctl_req_i_bits_rnw  <= 1'b0;
+                m_vif.ctl_req_i_bits_addr <= i[3:0];
+                m_vif.ctl_req_i_bits_data <= m_gen.m_ctl[i];
+               `waitt(m_vif.ctl_req_i_ready,  TO_MAX, "req timeout");
+                m_vif.ctl_req_i_valid     <= 1'b0;
+
+                m_vif.ctl_resp_o_ready    <= 1'b1;
+               `waitt(m_vif.ctl_resp_o_valid, TO_MAX, "resp timeout");
+                m_vif.ctl_resp_o_ready    <= 1'b0;
+
+                if (~m_vif.ctl_resp_o_bits_sel)
+                   `err($sformatf("failed: %0d", i));
+            end
+
+            // to tb_seq
+            m_env.set(2);
         end
-
-        // trigger
-        ->m_seq.m_evt;
     endtask
 
 endclass
@@ -638,20 +639,22 @@ endclass
 
 class tb_llc extends tb_base;
 
+    tb_env    m_env;
+    tb_ctl    m_ctl;
     ma_vif    m_vif;
     ma_mem    m_llc;
 
     tb_req    m_req [llcWays-1:0];
     semaphore m_sem;
     mailbox   m_box;
-    mailbox   m_ldp;
+    mailbox   m_pte;
 
     int       m_req_min;
     int       m_req_max;
     int       m_acc_min;
     int       m_acc_max;
-    int       m_ldp_clr;
-    int       m_ldp_set;
+    int       m_pte_clr;
+    int       m_pte_set;
 
     function new(ref ma_vif vif);
         verif::plusargs arg = new("llc.");
@@ -659,8 +662,10 @@ class tb_llc extends tb_base;
         m_mod = "llc";
         m_vif =  vif;
         m_sem =  new(1);
-        m_ldp =  new(0);
+        m_pte =  new(0);
 
+       `get(tb_env,  "env", m_env);
+       `get(tb_ctl,  "ctl", m_ctl);
        `get(ma_mem,  "llc", m_llc);
        `get(mailbox, "box", m_box);
 
@@ -668,8 +673,8 @@ class tb_llc extends tb_base;
         m_req_max = arg.get_int("req_max", 100);
         m_acc_min = arg.get_int("acc_min", 0);
         m_acc_max = arg.get_int("acc_max", 100);
-        m_ldp_clr = arg.get_int("ldp_clr", 1);
-        m_ldp_set = arg.get_int("ldp_set", 1);
+        m_pte_clr = arg.get_int("pte_clr", 1);
+        m_pte_set = arg.get_int("pte_set", 1);
 
         foreach (m_req[i])
             m_req[i] = new();
@@ -697,12 +702,18 @@ class tb_llc extends tb_base;
 
             do begin
                `rands(vld, with { vld dist {
-                    1'b0 := m_ldp_clr,
-                    1'b1 := m_ldp_set
+                    1'b0 := m_pte_clr,
+                    1'b1 := m_pte_set
                 };});
 
-                if (vld && !m_ldp.try_get(req) || !vld)
-                    m_box.get(req);
+                if (vld && !m_pte.try_get(req) || !vld)
+                    if (!m_box.try_get(req)) begin
+                        // to tb_llc
+                        m_env.set(0);
+                        // from tb_seq
+                        m_env.blk(3);
+                        continue;
+                    end
 
                 vld = 1'b0;
 
@@ -716,6 +727,8 @@ class tb_llc extends tb_base;
 
             end while (vld);
            `waitn(req.m_dly);
+
+            req.init();
 
             m_vif.llc_req_i_valid     <= 1'b1;
             m_vif.llc_req_i_bits_idx  <= idx;
@@ -763,27 +776,44 @@ class tb_llc extends tb_base;
                `err($sformatf("dat mismatch: %0x vs. %s", m_vif.llc_resp_o_bits_data, req.show()));
 
             req.post();
+
             m_sem.put();
         end
     endtask
 
     task cha_to();
         forever begin
+            tb_req req;
+            int    num = 0;
+
            `waitn(1);
 
             m_sem.get();
             foreach (m_req[i])
-                if  (m_req[i].m_vld && (++m_req[i].m_cnt >= TO_MAX))
-                   `err($sformatf("cha req timeout: %0d", i));
+                if  (m_req[i].m_vld) begin
+                    if (++m_req[i].m_cnt >= TO_MAX)
+                       `err($sformatf("cha req timeout: %0d", i));
+                    num++;
+                end
             m_sem.put();
+
+            // restart
+            if (!num && !m_env.get()) begin
+                // to tb_ctl
+                m_env.set(1);
+
+                // no any existing pte reqs
+                m_pte = new(0);
+            end
         end
     endtask
 
     task chc();
         forever begin
             mcn_t mcn;
+            pdn_t mdn;
             bit   hit;
-            bit   ldp;
+            bit   pte;
             int   dly = `urand(m_req_min, m_req_max);
 
             m_vif.llc_req_o_ready      <= dly == 0;
@@ -800,29 +830,30 @@ class tb_llc extends tb_base;
            `waitn(dly);
 
             mcn =  m_vif.llc_req_o_bits_mcn;
-            hit =  m_llc.chk(add_mcd(mcn), 8);
+            mdn = {mcn, 3'b0};
+            hit =  m_llc.chk(mdn, 8);
 
             m_vif.llc_resp_i_valid     <= 1'b1;
             m_vif.llc_resp_i_bits_hit  <= hit;
-            m_vif.llc_resp_i_bits_data <= m_llc.get_d(add_mcd(mcn));
+            m_vif.llc_resp_i_bits_data <= m_llc.get_d(mdn);
            `waitt(m_vif.llc_resp_i_ready, TO_MAX, "chc resp timeout");
             m_vif.llc_resp_i_valid     <= 1'b0;
 
             // llc actively loads ptes back
-           `rands(ldp, with { ldp dist {
-                1'b0 := m_ldp_clr,
-                1'b1 := m_ldp_set
+           `rands(pte, with { pte dist {
+                1'b0 := m_pte_clr,
+                1'b1 := m_pte_set
             };});
 
-            if (ldp && !hit) begin
+            if (pte && !hit) begin
                 tb_req req = new();
 
-                req.m_ldp = 1'b1;
+                req.m_pte = 1'b1;
                 req.m_mcn = mcn;
                 req.init();
                 req.body();
 
-                m_ldp.put(req);
+                m_pte.put(req);
             end
         end
     endtask
@@ -843,6 +874,7 @@ class tb_mem extends tb_base;
 
     pa_vif    m_vif;
     pa_mem    m_mem;
+    pe_mem    m_err;
 
     tb_req    m_req [memWays-1:0];
     semaphore m_sem;
@@ -860,6 +892,7 @@ class tb_mem extends tb_base;
         m_sem =  new(1);
 
        `get(pa_mem, "mem", m_mem);
+       `get(pe_mem, "err", m_err);
 
         m_req_min = arg.get_int("req_min", 0);
         m_req_max = arg.get_int("req_max", 100);
@@ -931,18 +964,17 @@ class tb_mem extends tb_base;
                 tb_req req = m_req[i];
 
                 if (req.m_vld && !req.m_dly) begin
-                    bit [519:0] d = m_mem.get_d(add_pcd(req.m_pcn));
+                    pdn_t pdn = {req.m_pcn, 3'b0};
 
                     if (req.m_rnw)
-                        req.m_data = clr_err(d);
+                        req.m_data = m_mem.get_d(pdn);
                     else
-                        m_mem.set_d(add_pcd(req.m_pcn),
-                                    set_err(req.m_data, 1'b0));
+                        m_mem.set_d(pdn, req.m_data);
 
                     req.m_vld = 1'b0;
 
                     m_vif.mem_resp_i_valid     <= 1'b1;
-                    m_vif.mem_resp_i_bits_err  <= get_err(d);
+                    m_vif.mem_resp_i_bits_err  <= m_err.get_b(req.m_pcn);
                     m_vif.mem_resp_i_bits_idx  <= i[memIdx-1:0];
                     m_vif.mem_resp_i_bits_rnw  <= req.m_rnw;
                     m_vif.mem_resp_i_bits_data <= req.m_data;
@@ -976,16 +1008,23 @@ class tb_env extends tb_base;
 
     ma_mem  m_llc;
     pa_mem  m_mem;
+    pe_mem  m_err;
+
+    int     m_ver;
 
     function new(input tb_vif vif, ma_vif llc, pa_vif mem);
         verif::plusargs arg = new("env.");
 
-        m_box     = new(1);
+       `set(tb_env,  "env", this);
+
+        m_box     = new(0);
         m_llc     = new("LLC");
         m_mem     = new("MEM");
+        m_err     = new("ERR");
 
        `set(ma_mem,  "llc", m_llc);
        `set(pa_mem,  "mem", m_mem);
+       `set(pe_mem,  "err", m_err);
        `set(mailbox, "box", m_box);
 
        `spawn(arg.get_str("gen", "tb_gen"), m_gen);
@@ -995,8 +1034,25 @@ class tb_env extends tb_base;
        `set(tb_seq,  "seq", m_seq);
 
         m_ctl     = new(vif);
+
+       `set(tb_ctl,  "ctl", m_ctl);
+
         m_uvc_llc = new(llc);
         m_uvc_mem = new(mem);
+
+        m_ver     = 0;
+    endfunction
+
+    task blk(input int v);
+        @(m_ver == v);
+    endtask
+
+    function int  get();
+        return m_ver;
+    endfunction
+
+    function void set(input int v);
+        m_ver = v;
     endfunction
 
     task main();

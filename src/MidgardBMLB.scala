@@ -158,9 +158,10 @@ class MLB(P: Param) extends Module {
     val s2_hit_way = s2_rdata.map(_.hit(s2_tag)).U
     val s2_hit_any = Any(s2_hit_way)
 
+    assert(s2_ren_q -> OHp(s2_hit_way, true.B))
+
     // simple random replacement
-    val s2_rpl_way = All(s2_vld_way) ?? Dec(LFSR(log2Ceil(P.mlbWays), s2_mis)) ::
-                                       ~PrR(s2_vld_way)
+    val s2_rpl_way = Dec(LFSR(log2Ceil(P.mlbWays), s2_mis))
 
     rst_done := rst_q(P.mlbIdx)
     rst_pend := rst_pend_q
@@ -172,7 +173,7 @@ class MLB(P: Param) extends Module {
     s2_mis   := s2_ren_q && !s2_hit_any
     s2_mpn   := s2_mpn_q
 
-    val wen   = ptw_resp_i.valid || !rst_done
+    val wen   = ptw_resp_i.valid && !ptw_resp_i.bits.err  || !rst_done
     val wsel  = rst_done ?? RegEnable(s2_rpl_way, s2_mis) :: ~0.U(P.mlbWays.W)
     val waddr = rst_done ?? RegEnable(s2_set,     s2_mis) ::  rst_q(P.mlbIdx.W)
     val wdata = rst_done ?? ptw_resp_i.bits               ::  MLBEntry(P)

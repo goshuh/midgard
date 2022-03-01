@@ -112,6 +112,8 @@ class PTC(P: Param) extends Module {
       val hit = req_vld &&  hit_any
       val mis = req_vld && !hit_any
 
+      assert(req_vld -> OHp(hit_way, true.B))
+
       // simple pseudo-random replacement
       val rpl_vld = upd_req_i.valid && upd_req_i.bits.lvl(i)
       val rpl_q   = LFSR(log2Ceil(P.ptcWays(i)).max(2), rpl_vld)
@@ -140,6 +142,8 @@ class PTC(P: Param) extends Module {
       lvl_hit(i) := hit
       lvl_mux(i) := OrM(hit_way, ptc_q)
     }
+
+    assert(req_vld -> OHp(lvl_hit.U, true.B))
 
     ptc_hit := Any(lvl_hit)
     ptc_mux := OrM(lvl_hit, lvl_mux)
@@ -175,7 +179,9 @@ class PTC(P: Param) extends Module {
     // save one cycle
     is (fsm_fwd) {
       llc_fsm_en  := llc_resp_o.ready
-      llc_fsm_nxt := mrq_resp_i.valid ?? fsm_busy :: fsm_idle
+      llc_fsm_nxt := llc_req_hit      ?? fsm_fwd  ::
+                     mrq_resp_i.valid ?? fsm_busy ::
+                                         fsm_idle
     }
     // decouple llc req/mem resp paths
     is (fsm_busy) {
