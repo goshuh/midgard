@@ -11,13 +11,13 @@ class MRQEntry(val P: Param) extends Bundle {
   val idx  = UInt(P.llcIdx.W)
   val rnw  = Bool()
   val err  = Bool()
+  val fsm  = UInt(3.W)
   val mcn  = UInt(P.mcnBits.W)
   val pcn  = UInt(P.pcnBits.W)
   val data = UInt(P.clBits.W)
 
-  def hit(m: UInt, p: UInt, e: Bool): Bool = {
-    e && (pcn === m) ||
-         (mcn === m)
+  def hit(m: UInt): Bool = {
+    mcn === m
   }
 }
 
@@ -91,7 +91,9 @@ class MRQ(val P: Param) extends Module {
   val req_dep      = dontTouch(Wire(Vec(P.mrqWays, Bool())))
   val req_fwd      = dontTouch(Wire(Vec(P.mrqWays, Bool())))
   val req_fwd_sel  = dontTouch(Wire(Vec(P.mrqWays, Bool())))
-  val req_fwd_any  = dontTouch(Wire(Bool()))
+  val req_fwd_rdy  = dontTouch(Wire(Bool()))
+  val req_fwd_imp  = dontTouch(Wire(Bool()))
+  val req_fwd_exp  = dontTouch(Wire(Bool()))
 
   arb_q := RegEnable(!arb_q, false.B, req_vld)
 
@@ -120,7 +122,7 @@ class MRQ(val P: Param) extends Module {
   val mrq_set_mul  = Any(mrq_inv.U & ~mrq_set_raw)
 
   // starting state
-  val mrq_set_nxt  = req_fwd_any ?? mrq_fsm_idle    ::
+  val mrq_set_nxt  = req_fwd_imp ?? mrq_fsm_idle    ::
                      ptc_req     ?? mrq_fsm_mlb_req ::
                                     mrq_fsm_mem_req
 
@@ -148,14 +150,18 @@ class MRQ(val P: Param) extends Module {
     val ots = mrq_vld.U & age_q.map(_(i)).U
 
     mrq_q(i).rnw  := RegEnable(req_pld.rnw, mrq_set(i))
-    mrq_q(i).idx  := RegEnable(req_pld.idx, mrq_set(i))
     mrq_q(i).mcn  := RegEnable(req_pld.mcn, mrq_set(i))
 
     // variable fields
     mrq_q(i).src  := RegEnable(mrq_set(i) ?? req_src ::
                                             (req_src | mrq_q(i).src),
                                mrq_set(i) ||
-                               req_fwd(i) && mrq_vld(i) && req_pld.rnw)
+                               req_fwd(i))
+
+    // ptw just doesn't care about this
+    mrq_q(i).idx  := RegEnable(req_pld.idx,
+                               mrq_set(i) ||
+                               req_fwd(i) && ptc_req)
 
     // page fault
     val mlb_err = mrq_mlb_resp(i) && mlb_resp_i.valid &&
@@ -179,30 +185,32 @@ class MRQ(val P: Param) extends Module {
                                mrq_clr(i) && mem_resp_pld.rnw)
 
     // same-line in ma space
-    val hit = req_vld && mrq_q(i).hit(req_pld.mcn,
-                                      req_pld.pcn,
-                                      req_src(0) && (mrq_dep(i) || mrq_fwd(i)))
+    val hit = req_vld && mrq_q(i).hit(req_pld.mcn)
 
     // same-line slots which are busy
     req_dep(i) := hit && mrq_dep(i)
 
     // same-line slots which are
     // 1. busy without dependency (youngest)
-    // 3. waiting for forwarding
+    // 2. waiting for forwarding
     dep_q  (i) := RegEnable(req_dep, mrq_set(i))
 
-    req_fwd(i) := req_dep(i) && !mrq_q(i).err && Non(ots & dep_q.map(_(i)).U) ||
-                  mrq_fwd(i) && !mrq_q(i).err && hit
+    req_fwd(i) := req_pld.rnw && !mrq_q(i).err &&
+                     (req_dep(i) && Non(ots & dep_q.map(_(i)).U) ||
+                      mrq_fwd(i) && hit)
+
+    // explicit forward may not be possible
+    val fwd_rdy = req_fwd(i) &&  req_fwd_rdy ||
+                 !req_fwd(i)
 
     // fsm
     val mrq_fsm_en  = dontTouch(Wire(Bool()))
-    val mrq_fsm_q   = dontTouch(Wire(UInt(3.W)))
     val mrq_fsm_nxt = dontTouch(Wire(UInt(3.W)))
 
     mrq_fsm_en  := false.B
-    mrq_fsm_nxt := mrq_fsm_q
+    mrq_fsm_nxt := mrq_q(i).fsm
 
-    switch (mrq_fsm_q) {
+    switch (mrq_q(i).fsm) {
       is (mrq_fsm_idle) {
         mrq_fsm_en  := mrq_set(i)
         mrq_fsm_nxt := mrq_set_nxt
@@ -221,24 +229,28 @@ class MRQ(val P: Param) extends Module {
       }
       is (mrq_fsm_mem_resp) {
         mrq_fsm_en  := mrq_clr(i)
-        mrq_fsm_nxt := mrq_fsm_fwd
+        mrq_fsm_nxt := fwd_rdy     ?? mrq_fsm_fwd  :: mrq_fsm_idle
       }
       // another idle state, wait-for-forwarding (and -allocation)
-      // slot stops forwarding when hit by a new same-line write. same-line read is just served by it
+      // slot stops forwarding when hit by a new same-line req. same-line read is just served by it
       is (mrq_fsm_fwd) {
-        mrq_fsm_en  := mrq_set(i) || hit && req_wnr
-        mrq_fsm_nxt := mrq_set(i) ?? mrq_set_nxt :: mrq_fsm_idle
+        mrq_fsm_en  := mrq_set(i)  || hit
+        mrq_fsm_nxt := mrq_set(i)  ?? mrq_set_nxt  ::
+                       req_wnr     ?? mrq_fsm_idle ::
+                       req_fwd_rdy ?? mrq_fsm_fwd  ::
+                                      mrq_fsm_idle
       }
     }
 
-    mrq_fsm_q := RegEnable(mrq_fsm_nxt, mrq_fsm_idle, mrq_fsm_en)
+    // make life easier
+    mrq_q(i).fsm := RegEnable(mrq_fsm_nxt, mrq_fsm_idle, mrq_fsm_en)
 
-    val mrq_fsm_is_idle     = mrq_fsm_q === mrq_fsm_idle
-    val mrq_fsm_is_mlb_req  = mrq_fsm_q === mrq_fsm_mlb_req
-    val mrq_fsm_is_mlb_resp = mrq_fsm_q === mrq_fsm_mlb_resp
-    val mrq_fsm_is_mem_req  = mrq_fsm_q === mrq_fsm_mem_req
-    val mrq_fsm_is_mem_resp = mrq_fsm_q === mrq_fsm_mem_resp
-    val mrq_fsm_is_fwd      = mrq_fsm_q === mrq_fsm_fwd
+    val mrq_fsm_is_idle     = mrq_q(i).fsm === mrq_fsm_idle
+    val mrq_fsm_is_mlb_req  = mrq_q(i).fsm === mrq_fsm_mlb_req
+    val mrq_fsm_is_mlb_resp = mrq_q(i).fsm === mrq_fsm_mlb_resp
+    val mrq_fsm_is_mem_req  = mrq_q(i).fsm === mrq_fsm_mem_req
+    val mrq_fsm_is_mem_resp = mrq_q(i).fsm === mrq_fsm_mem_resp
+    val mrq_fsm_is_fwd      = mrq_q(i).fsm === mrq_fsm_fwd
 
     raw_mlb_req (i) := mrq_fsm_is_mlb_req
     raw_mem_req (i) := mrq_fsm_is_mem_req
@@ -327,11 +339,13 @@ class MRQ(val P: Param) extends Module {
   val ptx_mem_rdy_q   = dontTouch(Wire(Vec(2, Bool())))
   val ptx_mem_rdy_byp = dontTouch(Wire(Vec(2, Bool())))
 
-  // forwarding occurs only after the slot finishes or is finishing, even for write
-  req_fwd_any := Any(req_fwd.U & (mrq_fwd.U | mrq_clr)) && req_pld.rnw && !ptx_fwd_any
+  // explicit forwarding occurs only after the slot finishes or is finishing, even for write
+  req_fwd_rdy := Non(ptx_fwd_vld)
+  req_fwd_imp := Any(req_fwd.U                        ) && req_fwd_rdy
+  req_fwd_exp := Any(req_fwd.U & (mrq_fwd.U | mrq_clr)) && req_fwd_rdy
 
   // slot that is currently forwarding
-  req_fwd_sel := EnQ(ptx_fwd_any, RegEnable(req_fwd, req_fwd_any))
+  req_fwd_sel := NeQ(req_fwd_rdy, RegEnable(req_fwd, req_fwd_exp))
 
   val fwd_resp = MemResp(P,
                          mrq_fwd_mux.idx,
@@ -345,7 +359,7 @@ class MRQ(val P: Param) extends Module {
   for (i <- 0 until 2) {
     val rdy     = ptx(i).ready
 
-    val fwd_vld = req_fwd_any  && req_src(i)
+    val fwd_vld = req_fwd_exp  && req_src(i)
     val mem_vld = mem_resp_vld && mrq_clr_mux.src(i)
 
     // collision

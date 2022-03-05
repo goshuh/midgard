@@ -191,8 +191,6 @@ class tb_gen extends tb_base;
     endfunction
 
     function new();
-        verif::plusargs arg = new("gen.");
-
         m_mod  = "gen";
         m_inst =  this;
 
@@ -326,7 +324,7 @@ class tb_gen extends tb_base;
         ppn_t ppn = m_ctl[0][paBits-1:12];
         pdn_t pdn = m_ctl[0][paBits-1: 3];
 
-       `info($sformatf("mpn: %x", mpn));
+       `dbg($sformatf("mpn: %x", mpn));
 
         // top-down ptw: creating missed ptes in memory
         for (int i = 1; i <= ptwLvl; i++) begin
@@ -388,11 +386,11 @@ class tb_gen extends tb_base;
                     m_err.set_b(pdn[pdnBits-1:3], 1'b1);
             end
 
-           `info($sformatf("ptw: %x %x %x: %x %x %x %x %x",
-                            mdn[mdnBits-1:9], mdn[mdnBits-1:3], mdn,
-                            pdn[pdnBits-1:9], pdn[pdnBits-1:3], pdn,
-                            pte,
-                            err));
+           `dbg($sformatf("ptw: %x %x %x: %x %x %x %x %x",
+                           mdn[mdnBits-1:9], mdn[mdnBits-1:3], mdn,
+                           pdn[pdnBits-1:9], pdn[pdnBits-1:3], pdn,
+                           pte,
+                           err));
 
             if (blk[0]) begin
                 longint msk = (1 << ((ptwLvl - i) * 9)) - 1;
@@ -487,10 +485,10 @@ class tb_req extends tb_base;
         if (m_pte)
             m_rnw = 1'b1;
 
-       `info($sformatf("res: %x %x %x: %x %x %x %x",
-                        m_mcn[mcnBits-1:6], m_mcn, {m_mcn, 3'b0},
-                        m_pcn[pcnBits-1:6], m_pcn, {m_pcn, 3'b0},
-                        m_err));
+       `dbg($sformatf("res: %x %x %x: %x %x %x %x",
+                       m_mcn[mcnBits-1:6], m_mcn, {m_mcn, 3'b0},
+                       m_pcn[pcnBits-1:6], m_pcn, {m_pcn, 3'b0},
+                       m_err));
     endfunction
 
     virtual function void body();
@@ -700,21 +698,25 @@ class tb_llc extends tb_base;
                 continue;
             end
 
+           `rands(vld, with { vld dist {
+                1'b0 := m_pte_clr,
+                1'b1 := m_pte_set
+            };});
+
+            if (vld && !m_pte.try_get(req) || !vld)
+                if (!m_box.try_get(req)) begin
+                    // to tb_llc
+                    m_env.set(0);
+                    // from tb_seq
+                    m_env.blk(3);
+                    continue;
+                end
+
+           `waitn(req.m_dly);
+
+            req.init();
+
             do begin
-               `rands(vld, with { vld dist {
-                    1'b0 := m_pte_clr,
-                    1'b1 := m_pte_set
-                };});
-
-                if (vld && !m_pte.try_get(req) || !vld)
-                    if (!m_box.try_get(req)) begin
-                        // to tb_llc
-                        m_env.set(0);
-                        // from tb_seq
-                        m_env.blk(3);
-                        continue;
-                    end
-
                 vld = 1'b0;
 
                 m_sem.get();
@@ -725,10 +727,9 @@ class tb_llc extends tb_base;
                     end
                 m_sem.put();
 
+                if (vld)
+                   `waitn(1);
             end while (vld);
-           `waitn(req.m_dly);
-
-            req.init();
 
             m_vif.llc_req_i_valid     <= 1'b1;
             m_vif.llc_req_i_bits_idx  <= idx;
