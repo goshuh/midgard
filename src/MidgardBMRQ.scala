@@ -7,11 +7,11 @@ import  midgard.util._
 
 
 class MRQEntry(val P: Param) extends Bundle {
-  val src  = UInt(2.W)
   val idx  = UInt(P.llcIdx.W)
+  val fsm  = UInt(3.W)
   val rnw  = Bool()
   val err  = Bool()
-  val fsm  = UInt(3.W)
+  val src  = UInt(2.W)
   val mcn  = UInt(P.mcnBits.W)
   val pcn  = UInt(P.pcnBits.W)
   val data = UInt(P.clBits.W)
@@ -153,9 +153,10 @@ class MRQ(val P: Param) extends Module {
     mrq_q(i).mcn  := RegEnable(req_pld.mcn, mrq_set(i))
 
     // variable fields
-    mrq_q(i).src  := RegEnable(mrq_set(i) ?? req_src ::
-                                            (req_src | mrq_q(i).src),
+    mrq_q(i).src  := RegEnable(EnQ(mrq_set(i) ||  req_fwd(i), req_src) |
+                               EnQ(mrq_vld(i) && !mrq_clr(i), mrq_q(i).src),
                                mrq_set(i) ||
+                               mrq_clr(i) ||
                                req_fwd(i))
 
     // ptw just doesn't care about this
@@ -200,7 +201,7 @@ class MRQ(val P: Param) extends Module {
                       mrq_fwd(i) && hit)
 
     // explicit forward may not be possible
-    val fwd_rdy = req_fwd(i) &&  req_fwd_rdy ||
+    val fwd_rdy = req_fwd(i) && req_fwd_rdy ||
                  !req_fwd(i)
 
     // fsm

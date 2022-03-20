@@ -8,23 +8,25 @@ import  midgard.util._
 
 
 class VLBReq  (val P: Param) extends Bundle {
+  val idx   = UInt(P.vlbIdx.W)
   val vpn   = UInt(P.vpnBits.W)
   val kill  = Bool()
 }
 
 class VLBResp (val P: Param) extends Bundle {
+  val idx   = UInt(P.vlbIdx.W)
   val vld   = Bool()
   val err   = Bool()
   val mpn   = UInt(P.mpnBits.W)
   val attr  = UInt(4.W)
 }
 
-class VLBRange(val P: Param) extends Bundle {
+class VMA     (val P: Param) extends Bundle {
   val vld   = Bool()
   val err   = Bool()
   val attr  = UInt(4.W)
-  val base  = UInt(P.mpnBits.W)
-  val bound = UInt(P.mpnBits.W)
+  val base  = UInt(P.vpnBits.W)
+  val bound = UInt(P.vpnBits.W)
   val offs  = UInt(P.vpnBits.W)
 
   def gt (v: UInt): Bool = {
@@ -35,7 +37,7 @@ class VLBRange(val P: Param) extends Bundle {
   }
 }
 
-class VLBEntry(val Q: Param) extends VLBRange(Q) {
+class VLBEntry(val Q: Param) extends VMA(Q) {
   val asid  = UInt(Q.asidBits.W)
 
   // TODO: global
@@ -45,11 +47,35 @@ class VLBEntry(val Q: Param) extends VLBRange(Q) {
 }
 
 
-object VLBRange {
-  def apply(P: Param): VLBRange = {
-    new VLBRange(P)
+object VLBReq {
+  def apply(P: Param, i: UInt, v: UInt, k: Bool): VLBReq = {
+    val ret = Wire(new VLBReq(P))
+
+    ret.idx  := i
+    ret.vpn  := v
+    ret.kill := k
+    ret
   }
-  def apply[T <: VLBRange](P: Param, ret: T, e: Bool): T = {
+}
+
+object VLBResp {
+  def apply(P: Param, i: UInt, v: Bool, e: Bool, m: UInt, a: UInt): VLBResp = {
+    val ret = Wire(new VLBResp(P))
+
+    ret.idx  := i
+    ret.vld  := v
+    ret.err  := e
+    ret.mpn  := m
+    ret.attr := a
+    ret
+  }
+}
+
+object VMA {
+  def apply(P: Param): VMA = {
+    Wire(new VMA(P))
+  }
+  def apply[T <: VMA](P: Param, ret: T, e: Bool): T = {
     ret.vld   := false.B
     ret.err   := e
     ret.attr  := DontCare
@@ -58,7 +84,7 @@ object VLBRange {
     ret.offs  := DontCare
     ret
   }
-  def apply[T <: VLBRange](P: Param, ret: T, a: UInt, b: UInt, c: UInt, o: UInt): T = {
+  def apply[T <: VMA](P: Param, ret: T, a: UInt, b: UInt, c: UInt, o: UInt): T = {
     ret.vld   := true.B
     ret.err   := false.B
     ret.attr  := a
@@ -67,32 +93,32 @@ object VLBRange {
     ret.offs  := o
     ret
   }
-  def apply(P: Param, e: Bool): VLBRange = {
+  def apply(P: Param, e: Bool): VMA = {
     apply(P, apply(P), e)
   }
-  def apply(P: Param, a: UInt, b: UInt, c: UInt, o: UInt): VLBRange = {
+  def apply(P: Param, a: UInt, b: UInt, c: UInt, o: UInt): VMA = {
     apply(P, apply(P), a, b, c, o)
   }
 }
 
 object VLBEntry {
   def apply(P: Param): VLBEntry = {
-    new VLBEntry(P)
+    Wire(new VLBEntry(P))
   }
   def apply(P: Param, e: Bool, a: UInt): VLBEntry = {
-    val ret = VLBRange(P,
-                       apply(P),
-                       e)
+    val ret = VMA(P,
+                  apply(P),
+                  e)
     ret.asid  := a
     ret
   }
-  def apply(P: Param, r: VLBRange, a: UInt): VLBEntry = {
-    val ret = VLBRange(P,
-                       apply(P),
-                       r.attr,
-                       r.base,
-                       r.bound,
-                       r.offs)
+  def apply(P: Param, r: VMA, a: UInt): VLBEntry = {
+    val ret = VMA(P,
+                  apply(P),
+                  r.attr,
+                  r.base,
+                  r.bound,
+                  r.offs)
     ret.asid  := a
     ret
   }
@@ -109,11 +135,12 @@ class VLB(val P: Param) extends Module {
   // --------------------------
   // io
 
-  val vlb_req_i  = IO(Flipped(    Valid(new VLBReq  (P))))
-  val vlb_resp_o = IO(            Valid(new VLBResp (P)))
+  val vlb_req_i  = IO(Flipped(    Valid(new VLBReq (P))))
+  val vlb_resp_o = IO(            Valid(new VLBResp(P)))
+  val vlb_fill_o = IO(            Valid(new VLBResp(P)))
 
-  val ptw_req_o  = IO(        Decoupled(new VLBReq  (P)))
-  val ptw_resp_i = IO(Flipped(    Valid(new VLBRange(P))))
+  val ptw_req_o  = IO(        Decoupled(new VLBReq (P)))
+  val ptw_resp_i = IO(Flipped(    Valid(new VMA    (P))))
 
   val asid_i     = IO(            Input(UInt(P.asidBits.W)))
 
@@ -137,18 +164,20 @@ class VLB(val P: Param) extends Module {
   //
   // stage 0
 
-  val s2_fill_vld   = dontTouch(Wire(Bool()))
-  val s2_fill_rpl_q = dontTouch(Wire(UInt(log2Ceil(P.vlbWays).W)))
-  val s2_fill_pld   = VLBEntry(P, ptw_resp_i.bits, asid_i)
+  val s2_fill_vld      = dontTouch(Wire(Bool()))
+  val s2_fill_vld_qual = dontTouch(Wire(Bool()))
+  val s2_fill_rpl_q    = dontTouch(Wire(UInt(log2Ceil(P.vlbWays).W)))
+  val s2_fill_pld      = VLBEntry(P, ptw_resp_i.bits, asid_i)
 
   // killed request doesn't expect a response
   val s0_vld = vlb_req_i.valid && !vlb_req_i.bits.kill
+  val s0_idx = vlb_req_i.bits.idx
   val s0_vpn = vlb_req_i.bits.vpn
   val s0_hit = dontTouch(Wire(Vec(P.vlbWays, Bool())))
 
   // hit the refilling one
-  val s0_ptw_hit = s0_vld      &&
-                   s2_fill_vld &&
+  val s0_ptw_hit = s0_vld           &&
+                   s2_fill_vld_qual &&
                    s2_fill_pld.hit(s0_vpn, asid_i)
 
   // body
@@ -159,7 +188,7 @@ class VLB(val P: Param) extends Module {
 
   for (i <- 0 until P.vlbWays) {
     val sel = s2_fill_rpl_q === i.U
-    val set = s2_fill_vld && sel
+    val set = s2_fill_vld_qual && sel
 
     // calculated for stage 1. not qualified yet
     s0_hit(i) := vlb_vld &&
@@ -176,6 +205,7 @@ class VLB(val P: Param) extends Module {
 
   val s1_adv     = dontTouch(Wire(Bool()))
   val s1_vld_q   = RegNext  (s0_vld)
+  val s1_idx_q   = RegEnable(s0_idx, s0_vld)
   val s1_vpn_q   = RegEnable(s0_vpn, s0_vld)
   val s1_hit_q   = RegEnable(s0_hit, s0_vld).U
 
@@ -191,7 +221,7 @@ class VLB(val P: Param) extends Module {
   // not a second mux
   // the two muxes actually mux different parts of vlb_q
   val s1_mpn     = s1_vpn_q + RegEnable(s0_ptw_hit ?? ptw_resp_i.bits.offs ::
-                                                      OrM(s0_hit, vlb_q.map(_.offs)),
+                                                      OrM(s0_hit.U & vld_q.U, vlb_q.map(_.offs)),
                                         s0_vld)
 
   // really start ptw
@@ -201,6 +231,7 @@ class VLB(val P: Param) extends Module {
   //
   // stage 2
 
+  val s2_idx_q   = RegEnable(s1_idx_q, s1_mis_vld)
   val s2_vpn_q   = RegEnable(s1_vpn_q, s1_mis_vld)
 
   // fsm
@@ -238,8 +269,9 @@ class VLB(val P: Param) extends Module {
   val s2_fsm_is_resp = s2_fsm_q === fsm_resp
 
   // TODO: other replacement policies
-  s2_fill_vld   := ptw_resp_i.valid && s2_fsm_is_resp && !s2_kill
-  s2_fill_rpl_q := LFSR(log2Ceil(P.vlbWays), s2_fill_vld)
+  s2_fill_vld      := ptw_resp_i.valid && s2_fsm_is_resp && !s2_kill
+  s2_fill_vld_qual := s2_fill_vld && ptw_resp_i.bits.vld && !ptw_resp_i.bits.err
+  s2_fill_rpl_q    := LFSR(log2Ceil(P.vlbWays), s2_fill_vld_qual)
 
   // stop the working ptw
   s2_stop := s2_fsm_is_resp && s2_kill
@@ -252,12 +284,24 @@ class VLB(val P: Param) extends Module {
   // output
 
   vlb_resp_o.valid     := s1_vld
-  vlb_resp_o.bits.vld  := s1_hit
-  vlb_resp_o.bits.err  := s1_hit_mux.err
-  vlb_resp_o.bits.mpn  := s1_mpn
-  vlb_resp_o.bits.attr := s1_hit_mux.attr
+  vlb_resp_o.bits      := VLBResp(P,
+                                  s1_idx_q,
+                                  s1_hit,
+                                  s1_hit_mux.err,
+                                  s1_mpn,
+                                  s1_hit_mux.attr)
+
+  vlb_fill_o.valid     := s2_fill_vld
+  vlb_fill_o.bits      := VLBResp(P,
+                                  s2_idx_q,
+                                  ptw_resp_i.bits.vld,
+                                  ptw_resp_i.bits.err,
+                                  0.U,
+                                  ptw_resp_i.bits.attr)
 
   ptw_req_o.valid      := s2_fsm_is_req && !s2_kill
-  ptw_req_o.bits.vpn   := s2_vpn_q
-  ptw_req_o.bits.kill  := s2_stop
+  ptw_req_o.bits       := VLBReq (P,
+                                  s2_idx_q,
+                                  s2_vpn_q,
+                                  s2_stop)
 }

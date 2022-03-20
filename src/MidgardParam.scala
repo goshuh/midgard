@@ -13,6 +13,7 @@ case class Param(
 
   llcIdx:   Int,
 
+  vlbIdx:   Int,
   vlbWays:  Int,
 
   mlbEn:    Boolean,
@@ -29,7 +30,7 @@ case class Param(
   ctlBase:  BigInt,
   ctlSize:  BigInt,
   ctlInit:  BigInt  = 0,
-  
+
   dbg:      Boolean = false) {
 
   val clWid      =  log2Ceil(clBits / 8)

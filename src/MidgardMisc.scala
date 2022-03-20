@@ -108,16 +108,29 @@ package object util {
     Cat(d.asBools()).asUInt()
   }
 
-  def Rep(d: UInt, n: Int ): UInt = {
+  def Rep(d: UInt, n: Int): UInt = {
     Cat(Seq.fill(n)(d))
   }
-  def Div(d: UInt, n: Int ): Seq[UInt] = {
+  def Div(d: UInt, n: Int): Seq[UInt] = {
     val s = (d.getWidth + n - 1) / n
-    val t =  d.pad(s * n)
+    val t =  Ext(d, s * n)
 
     Seq.tabulate(s) { i =>
       t(i * n + n - 1, i * n)
     }
+  }
+
+  def Ext(d: UInt, n: Int): UInt = {
+    require(n != 0)
+
+    val w = d.getWidth
+    val m = n.abs
+    val e = if (n > 0) 0.U(1.W) else d(w - 1);
+
+    if (w >= m)
+      d(m - 1, 0)
+    else
+      Rep(e, m - w) ## d
   }
 
   def EnQ[T <: Data](e: Bool, d: T): T = {
