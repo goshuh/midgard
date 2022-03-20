@@ -5,16 +5,16 @@
 $VERIF/../lib/verif.c
 $VERIF/../lib/verif.sv
 
-$VERIF/../../gen/MMU.v
+$VERIF/../../gen/FST.v
 
 $VERIF/../src/tb.sv
 $VERIF/src/tb_misc.sv
 $VERIF/src/tb_intf.sv
+$VERIF/src/tb_tree.sv
 $VERIF/src/tb_gen.sv
 $VERIF/src/tb_req.sv
 $VERIF/src/tb_seq.sv
-$VERIF/src/tb_ctl.sv
-$VERIF/src/tb_llc.sv
-$VERIF/src/tb_mem.sv
+$VERIF/src/tb_vlb.sv
+$VERIF/src/tb_l1d.sv
 $VERIF/src/tb_env.sv
 $VERIF/src/tb.sv

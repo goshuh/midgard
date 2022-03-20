@@ -65,7 +65,7 @@ module tb;
            .reset (reset));
 
     MMU
-    u_dut (.clock                (clock                     ),
+    u_mmu (.clock                (clock                     ),
            .reset                (reset                     ),
            .llc_req_i_ready      (m_llc.llc_req_i_ready     ),
            .llc_req_i_valid      (m_llc.llc_req_i_valid     ),
@@ -158,7 +158,7 @@ module tb;
         $fsdbDumpMDA();
 
         forever begin
-            repeat (10000000)
+            repeat (100000)
                 @(posedge clock);
 
             $fsdbDumpflush();

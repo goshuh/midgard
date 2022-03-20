@@ -5,5 +5,7 @@
 .bloop/
 out/
 gen/
-verif/cmp/
-verif/run/
+verif/fs/cmp/
+verif/fs/run/
+verif/bs/cmp/
+verif/bs/run/
