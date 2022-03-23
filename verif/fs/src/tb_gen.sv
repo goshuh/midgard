@@ -36,9 +36,9 @@ class tb_gen extends tb_base;
     virtual function void init();
         // TODO: spec only allows maximum 44 bits for satp
         m_atp = {{mpnBits-44{1'b0}}, 1'b1, {43{1'b0}}};
-        m_vpn = {};
 
         m_vma.delete();
+        m_vpn.delete();
         m_l1d.clr();
     endfunction
 

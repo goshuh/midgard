@@ -198,7 +198,6 @@ class PTW(P: Param, N: Int) extends Module {
   // fsm
 
   // vlb wants to kill ptw
-  val ptw_kill_nq = Any(ptw_src_q & vlb_req_i.map(_.bits.kill).U)
   val ptw_kill    = dontTouch(Wire(Bool()))
 
   val mem_fsm_en  = dontTouch(Wire(Bool()))
@@ -243,8 +242,16 @@ class PTW(P: Param, N: Int) extends Module {
   arb_rdy  := mem_fsm_is_idle ||
               mem_fsm_is_dly  && ptw_stop
 
+  // keep mem_req_o.valid intact
+  val ptw_kill_qual = Any(ptw_src_q & vlb_req_i.map(_.bits.kill).U) && !mem_fsm_is_idle
+
+  // ptw can be killed immature
+  val ptw_kill_q    = RegEnable(ptw_kill_qual && !ptw_step,
+                                false.B,
+                                ptw_kill_qual ||  ptw_step)
+
   ptw_step := mem_fsm_is_dly
-  ptw_kill := Any(mem_fsm_q) && (ptw_kill_nq || RegNext(ptw_kill))
+  ptw_kill := ptw_kill_qual || ptw_kill_q
 
 
   //

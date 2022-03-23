@@ -224,8 +224,13 @@ class VLB(val P: Param) extends Module {
                                                       OrM(s0_hit.U & vld_q.U, vlb_q.map(_.offs)),
                                         s0_vld)
 
+  // incoming ptw fill can also hit missed s1 req
+  val s1_ptw_hit = s1_vld           &&
+                   s2_fill_vld_qual &&
+                   s2_fill_pld.hit(s1_vpn_q, asid_i)
+
   // really start ptw
-  val s1_mis_vld = s1_mis && s1_adv
+  val s1_mis_vld = s1_vld && s1_adv && s1_mis && !s1_ptw_hit
 
 
   //

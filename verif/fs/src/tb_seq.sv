@@ -39,6 +39,7 @@ class tb_seq extends tb_base;
             m_env.blk(2);
 
             // create vma table now. simply too hard to rearrange it on-the-fly
+            m_gen.init();
             m_gen.gen_all(num);
 
             tbr.delete();
@@ -60,6 +61,10 @@ class tb_seq extends tb_base;
 
             // to tb_vlb
             m_env.set(3);
+
+            // from tb_vlb
+            m_env.blk(5);
+            m_env.set(0);
         end
     endtask
 

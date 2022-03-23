@@ -14,6 +14,7 @@ class tb_vlb extends tb_base;
     bit [1:0] m_kil;
     int       m_dis_get [2];
     int       m_dis_kil [2];
+    int       m_dis_ptw [2];
 
     function new(ref tb_vif vif, input string mod);
         verif::plusargs arg = new({mod, "."});
@@ -26,6 +27,7 @@ class tb_vlb extends tb_base;
 
         m_dis_get = {arg.get_int("get_clr",   1), arg.get_int("get_set", 100)};
         m_dis_kil = {arg.get_int("kil_clr", 100), arg.get_int("kil_set",   1)};
+        m_dis_ptw = {arg.get_int("ptw_clr", 100), arg.get_int("ptw_set",   1)};
 
         for (int i = 0; i < (1 << vlbIdx); i++)
             m_old.push_back(i);
@@ -34,6 +36,9 @@ class tb_vlb extends tb_base;
     endfunction
 
     function void cmp(ref tb_req req, input vlb_t idx, bit vld, bit err, mpn_t mpn, bit [3:0] attr);
+        if (req == null)
+            return;
+
         if (idx != req.m_idx)
            `err($sformatf("idx mismatch: %0x vs. %s", idx, req.show()));
         if (vld != req.m_res.vld)
@@ -49,6 +54,26 @@ class tb_vlb extends tb_base;
         end
     endfunction
 
+    function tb_req chk_req(input vlb_t idx);
+        tb_req req = m_req[idx];
+
+        if (req == null)
+           `err($sformatf("unexpected idx: %x", idx));
+
+        return req;
+    endfunction
+
+    function vlb_t  chk_new(input vlb_t idx);
+        int res [$] = m_new.find_first_index(i) with (i == idx);
+
+        if (res.size() == 0)
+           `err($sformatf("idx not found: %x", idx));
+        else
+            m_new.delete(res.pop_front());
+
+        return idx;
+    endfunction
+
     task main();
         forever begin
             tb_req req;
@@ -56,55 +81,59 @@ class tb_vlb extends tb_base;
             vlb_t  ret [$];
             bit    sel;
 
-            if (m_vif.vlb_resp_o_valid && m_vif.vlb_resp_o_bits_vld) begin
-                int res [$];
+            m_vif.vlb_kill_i              <= 3'b0;
 
-                idx = m_vif.vlb_resp_o_bits_idx;
-                res = m_new.find_first_index(i) with (i == idx);
-                req = m_req[idx];
+            if (m_vif.vlb_resp_o_valid && m_vif.vlb_resp_o_bits_vld) begin
+                idx = chk_new(m_vif.vlb_resp_o_bits_idx);
+                req = chk_req(idx);
+
+                cmp(req,
+                    m_vif.vlb_resp_o_bits_idx,
+                    m_vif.vlb_resp_o_bits_vld,
+                    m_vif.vlb_resp_o_bits_err,
+                    m_vif.vlb_resp_o_bits_mpn,
+                    m_vif.vlb_resp_o_bits_attr);
 
                 ret.push_back(idx);
-
-                if (req == null)
-                   `err($sformatf("unexpected idx: %x", idx));
-                else
-                    cmp(req,
-                        m_vif.vlb_resp_o_bits_idx,
-                        m_vif.vlb_resp_o_bits_vld,
-                        m_vif.vlb_resp_o_bits_err,
-                        m_vif.vlb_resp_o_bits_mpn,
-                        m_vif.vlb_resp_o_bits_attr);
-
-                if (res.size() == 0)
-                   `err($sformatf("idx not found: %x", idx));
-                else
-                    m_new.delete(res.pop_front());
             end
 
             if (m_vif.vlb_fill_o_valid && (m_vif.vlb_fill_o_bits_err ||
                                           !m_vif.vlb_fill_o_bits_vld)) begin
-                int res [$];
+                idx = chk_new(m_vif.vlb_fill_o_bits_idx);
+                req = chk_req(idx);
 
-                idx = m_vif.vlb_fill_o_bits_idx;
-                res = m_new.find_first_index(i) with (i == idx);
-                req = m_req[idx];
+                cmp(req,
+                    m_vif.vlb_fill_o_bits_idx,
+                    m_vif.vlb_fill_o_bits_vld,
+                    m_vif.vlb_fill_o_bits_err,
+                    req.m_mpn,
+                    m_vif.vlb_fill_o_bits_attr);
 
                 ret.push_back(idx);
+            end
 
-                if (req == null)
-                   `err($sformatf("unexpected idx: %x", idx));
-                else
-                    cmp(req,
-                        m_vif.vlb_fill_o_bits_idx,
-                        m_vif.vlb_fill_o_bits_vld,
-                        m_vif.vlb_fill_o_bits_err,
-                        req.m_mpn,
-                        m_vif.vlb_fill_o_bits_attr);
+            if (m_vif.vlb_busy_o) begin
+               `rands(sel, with { sel dist {
+                    1'b0 := m_dis_ptw[0],
+                    1'b1 := m_dis_ptw[1]
+                };});
 
-                if (res.size() == 0)
-                   `err($sformatf("idx not found: %x", idx));
-                else
-                    m_new.delete(res.pop_front());
+                idx = m_vif.vlb_fill_o_bits_idx;
+
+                // disable flush in colliding cases
+                if (sel && !m_vif.vlb_kill_i[1]    &&
+                           !m_vif.vlb_fill_o_valid &&
+                          !(m_vif.vlb_req_i_valid  &&
+                           (m_vif.vlb_req_i_bits_idx  == idx)) &&
+                          !(m_vif.vlb_resp_o_valid &&
+                           (m_vif.vlb_resp_o_bits_idx == idx))) begin
+                    idx = chk_new(idx);
+                    req = chk_req(idx);
+
+                    ret.push_back(idx);
+
+                    m_vif.vlb_kill_i[1]   <= 1'b1;
+                end
             end
 
             req = null;
@@ -174,6 +203,15 @@ class tb_vlb extends tb_base;
 
             if (!m_new.size() && (m_env.get() <= 1))
                 m_env.add(1);
+
+            if (!m_new.size() && (m_env.get() == (m_mod == "ilb" ? 3 : 4)) && !m_box.num()) begin
+                m_env.add(1);
+
+                m_vif.vlb_kill_i[2]       <= 1'b1;
+
+               `waitn(1);
+                continue;
+            end
 
            `rands(sel, with { sel dist {
                 1'b0 := m_dis_kil[0],
