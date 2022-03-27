@@ -8,7 +8,8 @@ class tb_vlb extends tb_base;
 
     vlb_t     m_old     [$];
     vlb_t     m_new     [$];
-    tb_req    m_req     [1 << vlbIdx];
+    tb_req    m_req     [vlbWays-1:0];
+    semaphore m_sem;
     mailbox   m_box;
 
     bit [1:0] m_kil;
@@ -16,11 +17,12 @@ class tb_vlb extends tb_base;
     int       m_dis_kil [2];
     int       m_dis_ptw [2];
 
-    function new(ref tb_vif vif, input string mod);
+    function new(ref tb_vif vif, input string mod, int b, int e);
         verif::plusargs arg = new({mod, "."});
 
         m_mod = mod;
         m_vif = vif;
+        m_sem = new(1);
 
        `get(tb_env,  "env", m_env);
        `get(mailbox, "box", m_box);
@@ -29,7 +31,7 @@ class tb_vlb extends tb_base;
         m_dis_kil = {arg.get_int("kil_clr", 100), arg.get_int("kil_set",   1)};
         m_dis_ptw = {arg.get_int("ptw_clr", 100), arg.get_int("ptw_set",   1)};
 
-        for (int i = 0; i < (1 << vlbIdx); i++)
+        for (int i = b; i < e; i++)
             m_old.push_back(i);
         foreach (m_req[i])
             m_req[i] = null;
@@ -74,7 +76,7 @@ class tb_vlb extends tb_base;
         return idx;
     endfunction
 
-    task main();
+    task main(input int stg, int max);
         forever begin
             tb_req req;
             vlb_t  idx;
@@ -121,7 +123,7 @@ class tb_vlb extends tb_base;
                 idx = m_vif.vlb_fill_o_bits_idx;
 
                 // disable flush in colliding cases
-                if (sel && !m_vif.vlb_kill_i[1]    &&
+                if (sel && !m_vif.vlb_kill_i[0]    &&
                            !m_vif.vlb_fill_o_valid &&
                           !(m_vif.vlb_req_i_valid  &&
                            (m_vif.vlb_req_i_bits_idx  == idx)) &&
@@ -132,7 +134,7 @@ class tb_vlb extends tb_base;
 
                     ret.push_back(idx);
 
-                    m_vif.vlb_kill_i[1]   <= 1'b1;
+                    m_vif.vlb_kill_i[0]   <= 1'b1;
                 end
             end
 
@@ -184,8 +186,7 @@ class tb_vlb extends tb_base;
             end else
                 m_vif.vlb_req_i_valid     <= 1'b0;
 
-            m_vif.vlb_req_i_bits_kill     <= m_kil[0];
-            m_vif.vlb_kill_i[0]           <= m_kil[1];
+            m_vif.vlb_req_i_bits_kill     <= m_kil;
 
             foreach (ret[i]) begin
                 m_old.push_back(ret[i]);
@@ -201,16 +202,13 @@ class tb_vlb extends tb_base;
                    `err($sformatf("req timeout: %s", req.show()));
             end
 
-            if (!m_new.size() && (m_env.get() <= 1))
+            if (!m_new.size() && (m_env.get() <  max))
                 m_env.add(1);
 
-            if (!m_new.size() && (m_env.get() == (m_mod == "ilb" ? 3 : 4)) && !m_box.num()) begin
+            if (!m_new.size() && (m_env.get() == stg) && !m_box.num()) begin
                 m_env.add(1);
 
-                m_vif.vlb_kill_i[2]       <= 1'b1;
-
-               `waitn(1);
-                continue;
+                m_vif.vlb_kill_i[1]       <= 1'b1;
             end
 
            `rands(sel, with { sel dist {

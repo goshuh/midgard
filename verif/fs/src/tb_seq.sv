@@ -26,7 +26,7 @@ class tb_seq extends tb_base;
         m_box.put(req);
     endtask
 
-    virtual task main();
+    virtual task main(input int stg, int max);
         verif::plusargs arg = new("seq.");
 
         string str = arg.get_str("req", "tb_req");
@@ -35,8 +35,7 @@ class tb_seq extends tb_base;
         tb_req tbr [$];
 
         forever begin
-            // from tb_vlb
-            m_env.blk(2);
+            m_env.blk(stg);
 
             // create vma table now. simply too hard to rearrange it on-the-fly
             m_gen.init();
@@ -59,11 +58,9 @@ class tb_seq extends tb_base;
             foreach (tbr[i])
                 put(tbr[i]);
 
-            // to tb_vlb
-            m_env.set(3);
+            m_env.add(1);
 
-            // from tb_vlb
-            m_env.blk(5);
+            m_env.blk(1 + stg + max);
             m_env.set(0);
         end
     endtask

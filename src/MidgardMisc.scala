@@ -4,6 +4,7 @@ import  scala.annotation.tailrec
 
 import  chisel3._
 import  chisel3.util._
+import  chisel3.util.random._
 import  chisel3.internal.firrtl._
 
 
@@ -176,6 +177,28 @@ package object util {
   }
   def PrR(d: UInt): UInt = {
     pri(OrL, ShL, d)
+  }
+
+  def RRA(d: UInt, e: Bool): UInt = {
+    val w = d.getWidth
+
+    if (w > 1) {
+      val arb_q = dontTouch(Wire(UInt(w.W)))
+      val fwd   = d &  arb_q
+      val bwd   = d & ~arb_q
+      val sel   = PrR(Mux(Any(fwd), fwd, bwd))
+
+      arb_q := RegEnable(OrL(RoL(sel, 1)),
+                        ~0.U,
+                         e)
+      sel
+
+    } else
+     ~0.U(w.W)
+  }
+
+  def PRA(w: Int,  e: Bool): UInt = {
+    Dec(LFSR(log2Ceil(w).max(2), e))(w - 1, 0)
   }
 
   def OHp(d: UInt, z: Bool): Bool = {

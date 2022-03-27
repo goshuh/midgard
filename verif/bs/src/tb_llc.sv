@@ -8,6 +8,8 @@ class tb_llc extends tb_base;
 
     ma_mem    m_llc;
 
+    llc_t     m_old     [$];
+    llc_t     m_new     [$];
     tb_req    m_req     [llcWays-1:0];
     semaphore m_sem;
     mailbox   m_box;
@@ -33,43 +35,72 @@ class tb_llc extends tb_base;
         m_dis_acc = {arg.get_int("acc_min", 0), arg.get_int("acc_max", 100)};
         m_dis_pte = {arg.get_int("pte_clr", 1), arg.get_int("pte_set",   1)};
 
+        for (int i = 0; i < llcWays; i++)
+            m_old.push_back(i);
         foreach (m_req[i])
-            m_req[i] = new();
+            m_req[i] = null;
+    endfunction
+
+    function void cmp(ref tb_req req, input llc_t idx, bit rnw, bit err, bit [511:0] data);
+        if (req == null)
+            return;
+
+        if (1'b1 != req.m_vld)
+           `err($sformatf("vld mismatch: %0x vs. %s", 1'b1, req.show()));
+        if (idx  != req.m_idx)
+           `err($sformatf("idx mismatch: %0x vs. %s", idx,  req.show()));
+        if (rnw  != req.m_rnw)
+           `err($sformatf("rnw mismatch: %0x vs. %s", rnw,  req.show()));
+        if (err  != req.m_err)
+           `err($sformatf("err mismatch: %0x vs. %s", err,  req.show()));
+
+        if (!err)
+            if (data != req.m_data)
+               `err($sformatf("dat mismatch: %0x vs. %s", data, req.show()));
+    endfunction
+
+    function tb_req chk_req(input llc_t idx);
+        tb_req req = m_req[idx];
+
+        if (req == null)
+           `err($sformatf("unexpected idx: %x", idx));
+
+        return req;
+    endfunction
+
+    function llc_t  chk_new(input llc_t idx);
+        int res [$] = m_new.find_first_index(i) with (i == idx);
+
+        if (res.size() == 0)
+           `err($sformatf("idx not found: %x", idx));
+        else
+            m_new.delete(res.pop_front());
+
+        return idx;
     endfunction
 
     task cha_req();
         forever begin
             tb_req req = null;
             llc_t  idx;
-            bit    vld;
+            bit    sel;
+            int    res [$];
 
-            m_sem.get();
-            foreach (m_req[i])
-                if (!m_req[i].m_vld) begin
-                    req = m_req[i];
-                    idx = i[llcIdx-1:0];
-
-                    break;
-                end
-            m_sem.put();
-
-            if (req == null) begin
+            if (m_old.size() == 0) begin
+                m_vif.llc_req_i_valid     <= 1'b0;
                `waitn(1);
                 continue;
             end
 
-           `rands(vld, with { vld dist {
+           `rands(sel, with { sel dist {
                 1'b0 := m_dis_pte[0],
                 1'b1 := m_dis_pte[1]
             };});
 
-            if (vld && !m_pte.try_get(req) || !vld)
+            if (sel && !m_pte.try_get(req) || !sel)
                 if (!m_box.try_get(req)) begin
-                    // to tb_llc
-                    m_env.set(0);
-
-                    // from tb_seq
-                    m_env.blk(3);
+                    m_vif.llc_req_i_valid <= 1'b0;
+                   `waitn(1);
                     continue;
                 end
 
@@ -78,34 +109,48 @@ class tb_llc extends tb_base;
             req.init();
 
             do begin
-                vld = 1'b0;
+                sel = 1'b0;
 
                 m_sem.get();
-                foreach (m_req[i])
-                    if  (m_req[i].m_vld && (m_req[i].m_mcn == req.m_mcn)) begin
-                        vld = 1'b1;
+                foreach (m_new[i]) begin
+                    tb_req old = m_req[m_new[i]];
+
+                    if (old == null)
+                       `err($sformatf("idx not found: %0x", m_new[i]));
+                    if (old.m_mcn == req.m_mcn) begin
+                        sel = 1'b1;
                         break;
                     end
+                end
                 m_sem.put();
 
-                if (vld)
+                if (sel)
                    `waitn(1);
-            end while (vld);
+            end while (sel);
 
-            m_vif.llc_req_i_valid     <= 1'b1;
-            m_vif.llc_req_i_bits_idx  <= idx;
-            m_vif.llc_req_i_bits_rnw  <= req.m_rnw;
-            m_vif.llc_req_i_bits_mcn  <= req.m_mcn;
-            m_vif.llc_req_i_bits_pcn  <= req.m_pcn;
-            m_vif.llc_req_i_bits_data <= req.m_data;
+           `rands(idx, with {
+                idx inside m_old;
+            });
+
+            m_vif.llc_req_i_valid         <= 1'b1;
+            m_vif.llc_req_i_bits_idx      <= idx;
+            m_vif.llc_req_i_bits_rnw      <= req.m_rnw;
+            m_vif.llc_req_i_bits_mcn      <= req.m_mcn;
+            m_vif.llc_req_i_bits_pcn      <= req.m_pcn;
+            m_vif.llc_req_i_bits_data     <= req.m_data;
            `waitt(m_vif.llc_req_i_ready, TO_MAX, "cha req timeout");
-            m_vif.llc_req_i_valid     <= 1'b0;
+            m_vif.llc_req_i_valid         <= 1'b0;
 
             req.body();
 
             m_sem.get();
             req.m_idx  = idx;
             m_req[idx] = req;
+
+            res = m_old.find_first_index(i) with (i == idx);
+
+            m_old.delete   (res.pop_front());
+            m_new.push_back(idx);
             m_sem.put();
         end
     endtask
@@ -113,6 +158,7 @@ class tb_llc extends tb_base;
     task chd_resp();
         forever begin
             tb_req req;
+            llc_t  idx;
             int    dly = `urand(m_dis_req[0], m_dis_req[1]);
 
             m_vif.llc_resp_o_ready     <= dly == 0;
@@ -126,50 +172,45 @@ class tb_llc extends tb_base;
             m_vif.llc_resp_o_ready     <= 1'b0;
 
             m_sem.get();
-            req = m_req[m_vif.llc_resp_o_bits_idx];
+            idx = chk_new(m_vif.llc_resp_o_bits_idx);
+            req = chk_req(idx);
 
-            if (req.m_vld == 1'b0)
-               `err($sformatf("unexpected idx: %0x vs. %s", m_vif.llc_resp_o_bits_idx, req.show()));
-            else begin
-                if (req.m_rnw != m_vif.llc_resp_o_bits_rnw)
-                   `err($sformatf("rnw mismatch: %0x vs. %s", m_vif.llc_resp_o_bits_rnw, req.show()));
-                if (req.m_err != m_vif.llc_resp_o_bits_err)
-                   `err($sformatf("err mismatch: %0x vs. %s", m_vif.llc_resp_o_bits_err, req.show()));
+            cmp(req,
+                idx,
+                m_vif.llc_resp_o_bits_rnw,
+                m_vif.llc_resp_o_bits_err,
+                m_vif.llc_resp_o_bits_data);
 
-                if (req.m_err == 1'b0)
-                    if (m_vif.llc_resp_o_bits_data != req.m_data)
-                       `err($sformatf("dat mismatch: %0x vs. %s", m_vif.llc_resp_o_bits_data, req.show()));
-
+            if (req) begin
                 req.post();
-            end
 
+                m_old.push_back(idx);
+                m_req[idx] = null;
+            end
             m_sem.put();
         end
     endtask
 
-    task chk();
+    task chk(input int stg, int max);
         forever begin
-            int num = 0;
-
            `waitn(1);
 
             m_sem.get();
-            foreach (m_req[i])
-                if  (m_req[i].m_vld) begin
-                    if (++m_req[i].m_cnt >= TO_MAX)
-                       `err($sformatf("cha req timeout: %0d", i));
+            foreach (m_new[i]) begin
+                tb_req req = m_req[m_new[i]];
 
-                    num++;
-                end
+                if (req == null)
+                   `err($sformatf("idx not found: %x", m_new[i]));
+                if (++req.m_cnt >= TO_MAX)
+                   `err($sformatf("cha req timeout: %s", req.show()));
+            end
             m_sem.put();
 
-            if (!num && !m_env.get()) begin
-                // to tb_ctl
-                m_env.set(1);
+            if (!m_new.size() && (m_env.get() <  max))
+                m_env.add(1);
 
-                // no any existing pte reqs
-                m_pte = new(0);
-            end
+            if (!m_new.size() && (m_env.get() == stg) && !m_box.num() && !m_pte.num())
+                m_env.add(1);
         end
     endtask
 
@@ -178,7 +219,7 @@ class tb_llc extends tb_base;
             mcn_t mcn;
             pdn_t mdn;
             bit   hit;
-            bit   pte;
+            bit   sel;
             int   dly = `urand(m_dis_req[0], m_dis_req[1]);
 
             m_vif.llc_req_o_ready      <= dly == 0;
@@ -205,12 +246,12 @@ class tb_llc extends tb_base;
             m_vif.llc_resp_i_valid     <= 1'b0;
 
             // llc actively loads ptes back
-           `rands(pte, with { pte dist {
+           `rands(sel, with { sel dist {
                 1'b0 := m_dis_pte[0],
                 1'b1 := m_dis_pte[1]
             };});
 
-            if (pte && !hit) begin
+            if (sel && !hit) begin
                 tb_req req = new();
 
                 req.m_pte = 1'b1;
@@ -223,11 +264,11 @@ class tb_llc extends tb_base;
         end
     endtask
 
-    task main();
+    task main(input int stg, int max);
         fork
             cha_req ();
             chd_resp();
-            chk     ();
+            chk     (stg, max);
             chc     ();
         join
     endtask

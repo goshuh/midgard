@@ -2,7 +2,6 @@ package midgard.backside
 
 import  chisel3._
 import  chisel3.util._
-import  chisel3.util.random._
 import  midgard._
 import  midgard.util._
 
@@ -116,27 +115,21 @@ class PTC(P: Param) extends Module {
 
       // simple pseudo-random replacement
       val rpl_vld = upd_req_i.valid && upd_req_i.bits.lvl(i)
-      val rpl_q   = LFSR(log2Ceil(P.ptcWays(i)).max(2), rpl_vld)
+      val rpl     = EnQ(rpl_vld, PRA(P.ptcWays(i), rpl_vld))
 
       for (j <- 0 until P.ptcWays(i)) {
-        val rpl = dontTouch(Wire(Bool()))
-        val upd = llc_req_wnr &&  hit_way(j)
+        val upd = llc_req_wnr && hit_way(j)
 
-        if (P.ptcWays(i) <= 1)
-          rpl := rpl_vld
-        else
-          rpl := rpl_vld && (rpl_q(log2Ceil(P.ptcWays(i)).W) === j.U)
-
-        // respect tlb flush
-        ptc_q(j).vld  := RegEnable(rpl && !clr_i,
+        // respect mlb flush
+        ptc_q(j).vld  := RegEnable(rpl(j) && !clr_i,
                                    false.B,
-                                   rpl ||  clr_i)
-        ptc_q(j).mcn  := RegEnable(upd_req_i.bits.mcn, rpl)
+                                   rpl(j) ||  clr_i)
+        ptc_q(j).mcn  := RegEnable(upd_req_i.bits.mcn, rpl(j))
 
         // llc write through
-        ptc_q(j).data := RegEnable(rpl ?? upd_req_i.bits.data ::
-                                          llc_req_i.bits.data,
-                                   rpl || upd)
+        ptc_q(j).data := RegEnable(rpl(j) ?? upd_req_i.bits.data ::
+                                             llc_req_i.bits.data,
+                                   rpl(j) || upd)
       }
 
       lvl_hit(i) := hit

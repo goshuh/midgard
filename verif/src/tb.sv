@@ -4,6 +4,7 @@ class tb_base extends verif::object;
     localparam maBits  =  64;
     localparam paBits  =  48;
 
+    localparam vlbWays =  64;
     localparam llcWays =  8;
     localparam memWays =  4;
 
@@ -24,7 +25,7 @@ class tb_base extends verif::object;
     localparam ptwTop  =  mpnBits - (ptwLvl - 1)  * 9;
     localparam ptwEnd  = (maBits  - ptwTop) <= paBits ? 0 : (maBits - ptwTop - paBits) / 9 + 1;
 
-    localparam vlbIdx  =  6;
+    localparam vlbIdx  = $clog2(vlbWays);
     localparam llcIdx  = $clog2(llcWays);
     localparam memIdx  = $clog2(memWays);
 

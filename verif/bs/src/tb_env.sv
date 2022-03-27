@@ -72,9 +72,14 @@ class tb_env extends tb_base;
 
     task main();
         fork
-            m_ctl    .main();
-            m_seq    .main();
-            m_uvc_llc.main();
+            // 0 -> 1: llc
+            // 1 -> 2: ctl
+            // 2 -> 3: seq
+            // 3 -> 4: llc
+            // 4 -> 0: ctl
+            m_ctl    .main(1, 2);
+            m_seq    .main(2);
+            m_uvc_llc.main(3, 1);
             m_uvc_mem.main();
         join
     endtask

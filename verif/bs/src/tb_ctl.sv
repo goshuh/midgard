@@ -15,10 +15,9 @@ class tb_ctl extends tb_base;
        `get(tb_env, "env", m_env);
     endfunction
 
-    task main();
+    task main(input int stg, int max);
         forever begin
-            // from tb_llc
-            m_env.blk(1);
+            m_env.blk(stg);
 
             m_gen.init();
 
@@ -38,8 +37,10 @@ class tb_ctl extends tb_base;
                    `err($sformatf("failed: %0d", i));
             end
 
-            // to tb_seq
-            m_env.set(2);
+            m_env.add(1);
+
+            m_env.blk(1 + stg + max);
+            m_env.set(0);
         end
     endtask
 

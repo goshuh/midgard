@@ -2,7 +2,6 @@ package midgard.backside
 
 import  chisel3._
 import  chisel3.util._
-import  chisel3.util.random._
 import  midgard._
 import  midgard.util._
 
@@ -160,8 +159,8 @@ class MLB(P: Param) extends Module {
 
     assert(s2_ren_q -> OHp(s2_hit_way, true.B))
 
-    // simple random replacement
-    val s2_rpl_way = Dec(LFSR(log2Ceil(P.mlbWays), s2_mis))
+    // simple pseudo-random replacement
+    val s2_rpl_way = PRA(P.mlbWays, s2_mis)
 
     rst_done := rst_q(P.mlbIdx)
     rst_pend := rst_pend_q

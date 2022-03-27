@@ -9,9 +9,14 @@ case class Param(
   paBits:   Int     = 48,
   clBits:   Int     = 512,
 
+  attrBits: Int     = 4,
   asidBits: Int     = 16,
 
   llcIdx:   Int,
+
+  tlbEn:    Boolean,
+  tlbWays:  Int,
+  tlbQDep:  Int,
 
   vlbIdx:   Int,
   vlbWays:  Int,

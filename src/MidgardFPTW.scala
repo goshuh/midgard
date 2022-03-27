@@ -65,26 +65,14 @@ class PTW(P: Param, N: Int) extends Module {
   //
   // arb
 
-  // round-robin among vlb reqs
   val arb_rdy = dontTouch(Wire(Bool()))
-  val arb_sel = dontTouch(Wire(UInt(N.W)))
-  val arb_gnt = EnQ(arb_rdy, arb_sel)
 
   val vlb_req_vld     = vlb_req_i.map(_.valid).U
   val vlb_req_vld_any = Any(vlb_req_vld) && arb_rdy
 
-  if (N > 1) {
-    val arb_q = dontTouch(Wire(UInt(N.W)))
-    val fwd   = vlb_req_vld &  arb_q
-    val bwd   = vlb_req_vld & ~arb_q
-
-    arb_sel := PrR(Any(fwd) ?? fwd :: bwd)
-    arb_q   := RegEnable(OrL(RoL(arb_sel, 1)),
-                        ~0.U,
-                         vlb_req_vld_any)
-  } else {
-    arb_sel := 1.U(1.W)
-  }
+  // round-robin among vlb reqs
+  val arb_sel = RRA(vlb_req_vld, vlb_req_vld_any)
+  val arb_gnt = EnQ(arb_rdy, arb_sel)
 
   val req_vld = vlb_req_vld_any
   val req_pld = OrM(arb_gnt, vlb_req_i.map(_.bits))
@@ -243,7 +231,7 @@ class PTW(P: Param, N: Int) extends Module {
               mem_fsm_is_dly  && ptw_stop
 
   // keep mem_req_o.valid intact
-  val ptw_kill_qual = Any(ptw_src_q & vlb_req_i.map(_.bits.kill).U) && !mem_fsm_is_idle
+  val ptw_kill_qual = Any(ptw_src_q & vlb_req_i.map(_.bits.kill(0)).U) && !mem_fsm_is_idle
 
   // ptw can be killed immature
   val ptw_kill_q    = RegEnable(ptw_kill_qual && !ptw_step,

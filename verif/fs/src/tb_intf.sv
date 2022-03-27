@@ -6,7 +6,7 @@ interface tb_vlb_intf (
     bit            vlb_req_i_valid;
     tb_base::vlb_t vlb_req_i_bits_idx;
     tb_base::vpn_t vlb_req_i_bits_vpn;
-    bit            vlb_req_i_bits_kill;
+    bit [     1:0] vlb_req_i_bits_kill;
     bit            vlb_resp_o_valid;
     tb_base::vlb_t vlb_resp_o_bits_idx;
     bit            vlb_resp_o_bits_vld;
@@ -19,7 +19,7 @@ interface tb_vlb_intf (
     bit            vlb_fill_o_bits_err;
     tb_base::mpn_t vlb_fill_o_bits_mpn;
     bit [     3:0] vlb_fill_o_bits_attr;
-    bit [     2:0] vlb_kill_i;
+    bit [     1:0] vlb_kill_i;
     bit            vlb_busy_o;
 
     initial begin
