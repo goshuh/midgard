@@ -161,7 +161,7 @@ class PTW(P: Param) extends Module {
   // at least one level of translation is required
   val ptw_lvl_top = ptw_lvl_q(0) || Any(ptw_lvl_q & Rev(ptw_top_q))
   val ptw_lvl_bot = ptw_lvl_q(P.ptwLvl - 1)
-  val ptw_lvl_blk = ptw_top_q(P.ptwLvl - 1)
+  val ptw_lvl_blk = ptw_top_q(P.ptwLvl - 1) && ptw_lvl_bot
 
   // invalid huge page level range
   val ptw_lvl_inv = Any(lvl_inv_idx.map(ptw_lvl_q(_)).U)
@@ -187,7 +187,7 @@ class PTW(P: Param) extends Module {
 
   // with the consistency requirement of midgard page tables, the lowest level
   // pte may not necessarily point to a normal data block/page. instead, it may
-  // points to a page table page
+  // point to a page table page
   val llc_lvl_blk = llc_pte_blk ||  ptw_lvl_blk
 
   val llc_hit_bot = llc_pte_vld &&  llc_lvl_blk &&  ptw_lvl_bot
