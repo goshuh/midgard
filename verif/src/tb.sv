@@ -34,7 +34,7 @@ class tb_base extends verif::object;
                                - (btOrder + 1) *  mcnBits;
 
     // tb usage
-    localparam TO_MAX  =  5000;
+    localparam TO_MAX  =  10000;
 
     typedef bit [vpnBits-1:0] vpn_t;
     typedef bit [vcnBits-1:0] vcn_t;

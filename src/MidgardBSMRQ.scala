@@ -361,7 +361,7 @@ class MRQ(val P: Param) extends Module {
     val rdy     = ptx(i).ready
 
     val fwd_vld = req_fwd_exp  && req_src(i)
-    val mem_vld = mem_resp_vld && mrq_clr_mux.src(i)
+    val mem_vld = mem_resp_vld && mrq_clr_mux.src(i) && !ptx_mem_rdy_q(i)
 
     // collision
     val fwd_rdy = fwd_vld && rdy
@@ -420,7 +420,7 @@ class MRQ(val P: Param) extends Module {
                           ptx_mem_rdy_q  (i) ||
                          !mrq_clr_mux.src(i)
 
-    ptx(i).valid := ptx_fsm_is_busy && !ptx_mem_rdy_q(i)
+    ptx(i).valid := ptx_fsm_is_busy
     ptx(i).bits  := ptx_fsm_is_fwd ?? fwd_resp :: mem_resp_pld
   }
 

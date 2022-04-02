@@ -232,7 +232,7 @@ class tb_gen extends tb_base;
                            err));
 
             if (blk[0]) begin
-                longint msk = (1 << ((ptwLvl - i) * 9)) - 1;
+                longint msk = (1 << m_shf[i]) - 1;
 
                 ppn = ppn              & ~msk[ppnBits-1:0] |
                       mpn[ppnBits-1:0] &  msk[ppnBits-1:0];

@@ -12,7 +12,6 @@ class tb_vlb extends tb_base;
     semaphore m_sem;
     mailbox   m_box;
 
-    bit [1:0] m_kil;
     int       m_dis_get [2];
     int       m_dis_kil [2];
     int       m_dis_ptw [2];
@@ -78,10 +77,11 @@ class tb_vlb extends tb_base;
 
     task main(input int stg, int max);
         forever begin
-            tb_req req;
-            vlb_t  idx;
-            vlb_t  ret [$];
-            bit    sel;
+            tb_req    req;
+            vlb_t     idx;
+            vlb_t     ret [$];
+            bit       sel;
+            bit [2:0] kil;
 
             m_vif.vlb_kill_i              <= 3'b0;
 
@@ -145,7 +145,7 @@ class tb_vlb extends tb_base;
                 1'b1 := m_dis_get[1]
             };});
 
-            if (sel && m_old.size() && (m_new.size() < 8)) begin
+            if (sel && m_box.num() && m_old.size() && (m_new.size() < 8)) begin
                `rands(idx, with {
                     idx inside m_old;
                 });
@@ -179,6 +179,19 @@ class tb_vlb extends tb_base;
                     req = m_req[idx];
             end
 
+            // kill the issued req once it is already performing ptw
+            kil[1] = m_vif.vlb_req_i_valid      && m_vif.vlb_busy_o &&
+                    (m_vif.vlb_req_i_bits_idx   == m_vif.vlb_fill_o_bits_idx);
+            kil[2] = m_vif.vlb_req_i_valid_q    && m_vif.vlb_busy_o &&
+                    (m_vif.vlb_req_i_bits_idx_q == m_vif.vlb_fill_o_bits_idx);
+
+           `rands(sel, with { sel dist {
+                1'b0 := m_dis_kil[0],
+                1'b1 := m_dis_kil[1]
+            };});
+
+            kil[0] = sel;
+
             if (req) begin
                 m_vif.vlb_req_i_valid     <= 1'b1;
                 m_vif.vlb_req_i_bits_idx  <= req.m_idx;
@@ -186,7 +199,7 @@ class tb_vlb extends tb_base;
             end else
                 m_vif.vlb_req_i_valid     <= 1'b0;
 
-            m_vif.vlb_req_i_bits_kill     <= m_kil;
+            m_vif.vlb_req_i_bits_kill     <= kil;
 
             foreach (ret[i]) begin
                 m_old.push_back(ret[i]);
@@ -210,13 +223,6 @@ class tb_vlb extends tb_base;
 
                 m_vif.vlb_kill_i[1]       <= 1'b1;
             end
-
-           `rands(sel, with { sel dist {
-                1'b0 := m_dis_kil[0],
-                1'b1 := m_dis_kil[1]
-            };});
-
-            m_kil = {m_kil[0], sel};
 
            `waitn(1);
         end

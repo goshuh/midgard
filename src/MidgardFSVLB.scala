@@ -7,9 +7,11 @@ import  midgard.util._
 
 
 class VLBReq  (val P: Param) extends Bundle {
+  def wid   = if (P.tlbEn) 3 else 2
+
   val idx   = UInt(P.vlbIdx.W)
   val vpn   = UInt(P.vpnBits.W)
-  val kill  = UInt(2.W)
+  val kill  = UInt(wid.W)
 }
 
 class VLBResp (val P: Param) extends Bundle {
@@ -61,16 +63,6 @@ class TLBEntry(val P: Param) extends Bundle {
   }
   def clr(e: Bool, a: UInt): Bool = {
     vld &&  e && (a === asid)
-  }
-}
-
-class ReqEntry(val P: Param) extends Bundle {
-  val vld   = Bool()
-  val idx   = UInt(P.vlbIdx.W)
-  val vpn   = UInt(P.vpnBits.W)
-
-  def hit(v: UInt): Bool = {
-    vld && (v === vpn)
   }
 }
 
@@ -166,17 +158,6 @@ object TLBEntry {
   }
 }
 
-object ReqEntry {
-  def apply(P: Param, i: UInt, v: UInt): ReqEntry = {
-    val ret = Wire(new ReqEntry(P))
-
-    ret.vld   := true.B
-    ret.idx   := i
-    ret.vpn   := v
-    ret
-  }
-}
-
 
 class VLB(val P: Param, N: Int) extends Module {
 
@@ -215,7 +196,8 @@ class VLB(val P: Param, N: Int) extends Module {
       fsm_resp ::
       fsm_null) = Enum(3)
 
-  // common qualification
+  // common
+  val sx_kill =  kill_i(Inv)
   val sx_qual = !kill_i(Inv)
 
 
@@ -232,10 +214,9 @@ class VLB(val P: Param, N: Int) extends Module {
 
   // forward decl
   val s0_vld     = dontTouch(Wire(Bool()))
-  val s0_idx     = dontTouch(Wire(UInt(P.llcIdx.W)))
+  val s0_idx     = dontTouch(Wire(UInt(P.vlbIdx.W)))
   val s0_vpn     = dontTouch(Wire(UInt(P.vpnBits.W)))
 
-  val s0_kill    = vlb_req_i.map(e => e.bits.kill(1))
   val s1_kill    = dontTouch(Wire(Bool()))
 
   val sp_fill_vld   = dontTouch(Wire(Bool()))
@@ -250,72 +231,41 @@ class VLB(val P: Param, N: Int) extends Module {
       val hit_way = tlb_q.map(_.hit(sp_vpn(i), asid_i)).U
       val hit_any = Any(hit_way)
 
-      sp_hit    (i) := sp_vld(i) &&  hit_any
-      sp_mis    (i) := sp_vld(i) && !hit_any
-      sp_hit_mux(i) := OrM(hit_way,  tlb_q)
+      // also consider the case of refilling tlb
+      val sp_ptw_hit = sp_fill_vld &&
+                       sp_fill_pld.hit(sp_vpn(i), asid_i)
+
+      sp_hit(i) := sp_vld(i) &&  hit_any
+      sp_mis(i) := sp_vld(i) && !hit_any && !sp_ptw_hit
+
+      // refilling case excluded for timing
+      sp_hit_mux(i) := OrM(hit_way, tlb_q)
+
+      assert(sp_vld(i) -> OHp(hit_way ## sp_ptw_hit, true.B))
     }
 
-    if (N > 1) {
-      // merge multiple req streams into one
-      val req_q     = dontTouch(Wire(Vec (P.tlbQDep, new ReqEntry(P))))
-      val req_vld   = req_q.map(_.vld).U
-
-      val enq_ptr_q = dontTouch(Wire(UInt(P.tlbQDep.W)))
-      val deq_ptr_q = dontTouch(Wire(UInt(P.tlbQDep.W)))
-
-      // another big comparator array
-      val enq_req   = sp_mis.U & sp_vpn.map(v => Non(req_q.map(_.hit(v)).U)).U
-
-      // not full
-      val enq_vld   = Any(enq_req) && sx_qual && Non(req_vld & enq_ptr_q)
-      val deq_vld   = Any(req_vld) && sx_qual
-
-      // round-robin
-      val enq_sel   = RRA(enq_req, enq_vld)
-      val enq_sel_q = RegNext(EnQ(enq_vld, enq_sel))
-
-      val enq_mux   = OrM(enq_sel, Seq.tabulate(N) { i =>
-                                     ReqEntry(P,
-                                              sp_idx(i),
-                                              sp_vpn(i))
-                                   })
-      val deq_mux   = OrM(deq_ptr_q, req_q)
-
-      enq_ptr_q := RegEnable(kill_i(Inv) ?? 1.U :: RoL(enq_ptr_q, 1), 1.U, enq_vld || kill_i(Inv))
-      deq_ptr_q := RegEnable(kill_i(Inv) ?? 1.U :: RoL(deq_ptr_q, 1), 1.U, deq_vld || kill_i(Inv))
-
-      // suppress the req once it is killed by the upstream
-      val s0_sup = Any(enq_sel_q & s0_kill.U) && (deq_ptr_q === RoR(enq_ptr_q, 1))
-
-      // TODO: timing. mux can be removed
-      s0_vld := deq_mux.vld && !s0_sup && sx_qual
-      s0_idx := deq_mux.idx
-      s0_vpn := deq_mux.vpn
-
-      for (i <- 0 until P.tlbQDep) {
-        val set = enq_vld && enq_ptr_q(i)
-        val clr = deq_vld && deq_ptr_q(i) || kill_i(Inv)
-
-        req_q(i)     := RegEnable(enq_mux,      set)
-        req_q(i).vld := RegEnable(set, false.B, set || clr)
-      }
-
-    } else {
-      s0_vld := RegNext  (sp_mis(0)) && !vlb_req_i(0).bits.kill(1) && sx_qual
-      s0_idx := RegEnable(sp_idx(0), sp_mis(0))
-      s0_vpn := RegEnable(sp_vpn(0), sp_mis(0))
-    }
-
-    // replacement
     for (i <- 0 until P.tlbWays) {
       val set = sp_fill_vld && sp_fill_rpl_q(i)
-      val clr = tlb_q(i).clr(kill_i(Inv), kill_asid_i)
+      val clr = tlb_q(i).clr(sx_kill, kill_asid_i)
 
       tlb_q(i)     := RegEnable(sp_fill_pld,  set)
       tlb_q(i).vld := RegEnable(set, false.B, set || clr)
     }
 
-    s1_kill := false.B
+    // don't issue the same req b2b to vlb
+    val sp_req = sp_mis.U & sp_vpn.map(v => !(s0_vld && (v === s0_vpn))).U
+
+    // round-robin
+    val sp_req_any = Any(sp_req) && sx_qual
+    val sp_sel     = RRA(sp_req,    sp_req_any)
+    val s0_sel_q   = RegEnable(sp_sel,   sp_req_any)
+    val s1_sel_q   = RegEnable(s0_sel_q, s0_vld)
+
+    s0_vld  := RegNext  (sp_req_any) && Non(s0_sel_q & vlb_req_i.map(_.bits.kill(1)).U) && sx_qual
+    s0_idx  := RegEnable(OrM(sp_sel, sp_idx), sp_req_any)
+    s0_vpn  := RegEnable(OrM(sp_sel, sp_vpn), sp_req_any)
+
+    s1_kill := Any(s1_sel_q & vlb_req_i.map(_.bits.kill(2)).U)
 
   } else {
     sp_hit    (0) := DontCare
@@ -352,7 +302,7 @@ class VLB(val P: Param, N: Int) extends Module {
   for (i <- 0 until P.vlbWays) {
     val rpl = s2_fill_rpl_q(i)
     val set = s2_fill_vld_qual && rpl
-    val clr = vlb_q(i).clr(kill_i(Inv), kill_asid_i)
+    val clr = vlb_q(i).clr(sx_kill, kill_asid_i)
 
     // calculated for stage 1. not qualified yet
     s0_hit(i) := rpl &&         s0_ptw_hit ||
@@ -375,6 +325,8 @@ class VLB(val P: Param, N: Int) extends Module {
   // qualified
   val s1_hit_way = s1_hit_q & vld_q.U
   val s1_hit_any = Any(s1_hit_way)
+
+  assert(s1_vld_q -> OHp(s1_hit_way, true.B))
 
   val s1_vld     = s1_vld_q && !s1_kill
   val s1_hit     = s1_vld   &&  s1_hit_any
