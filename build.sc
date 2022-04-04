@@ -11,7 +11,7 @@ object midgard extends ScalaModule {
   )
 
   override def ivyDeps = Agg(
-    ivy"edu.berkeley.cs::chisel3:3.5.0-RC1"
+    ivy"edu.berkeley.cs::chisel3:3.5.0"
   )
 
   override def millSourcePath = os.pwd
