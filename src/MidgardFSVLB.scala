@@ -322,6 +322,9 @@ class VLB(val P: Param, N: Int) extends Module {
   val s1_vpn_q   = RegEnable(s0_vpn, s0_vld)
   val s1_hit_q   = RegEnable(s0_hit, s0_vld).U
 
+  val s2_idx_q   = dontTouch(Wire(Bool()))
+  val s2_vpn_q   = dontTouch(Wire(Bool()))
+
   // qualified
   val s1_hit_way = s1_hit_q & vld_q.U
   val s1_hit_any = Any(s1_hit_way)
@@ -340,9 +343,10 @@ class VLB(val P: Param, N: Int) extends Module {
                                         s0_vld)
 
   // incoming ptw fill can also hit missed s1 req
-  val s1_ptw_hit = s1_vld           &&
-                   s2_fill_vld_qual &&
-                   s2_fill_pld.hit(s1_vpn_q, asid_i)
+  val s1_ptw_hit = s1_vld      &&
+                   s2_fill_vld &&
+                  (s2_fill_pld.hit(s1_vpn_q, asid_i) ||
+                  (s1_vpn_q === s2_vpn_q))
 
   // really start ptw
   val s1_mis_vld = s1_mis && s1_adv && !s1_ptw_hit && sx_qual
@@ -368,9 +372,6 @@ class VLB(val P: Param, N: Int) extends Module {
   //
   // stage 2
 
-  val s2_idx_q   = RegEnable(s1_idx_q, s1_mis_vld)
-  val s2_vpn_q   = RegEnable(s1_vpn_q, s1_mis_vld)
-
   // fsm
   val s2_fsm_en  = dontTouch(Wire(Bool()))
   val s2_fsm_q   = dontTouch(Wire(UInt(2.W)))
@@ -378,6 +379,9 @@ class VLB(val P: Param, N: Int) extends Module {
 
   val s2_kill    = Any(kill_i(Inv := Iss))
   val s2_stop    = dontTouch(Wire(Bool()))
+
+  s2_idx_q   := RegEnable(s1_idx_q, s1_mis_vld)
+  s2_vpn_q   := RegEnable(s1_vpn_q, s1_mis_vld)
 
   s2_fsm_en  := false.B
   s2_fsm_nxt := s2_fsm_q
@@ -388,13 +392,13 @@ class VLB(val P: Param, N: Int) extends Module {
       s2_fsm_nxt := fsm_req
     }
     is (fsm_req) {
-      s2_fsm_en  := ptw_req_o.ready  || s2_kill
+      s2_fsm_en  := s2_kill || ptw_req_o.ready
       s2_fsm_nxt := s1_mis_vld ?? fsm_req  ::
                     s2_kill    ?? fsm_idle ::
                                   fsm_resp
     }
     is (fsm_resp) {
-      s2_fsm_en  := ptw_resp_i.valid || s2_kill
+      s2_fsm_en  := s2_kill || ptw_resp_i.valid
       s2_fsm_nxt := s1_mis_vld ?? fsm_req  :: fsm_idle
     }
   }
@@ -413,8 +417,10 @@ class VLB(val P: Param, N: Int) extends Module {
   // stop the working ptw
   s2_stop := s2_fsm_is_resp && s2_kill
 
-  // save one cycle. the vlb requests can go out-of-order
-  s1_adv  := s2_fsm_is_idle || s2_stop || s2_fill_vld
+  // save one cycle. vlb requests can go out-of-order
+  s1_adv  := s2_fsm_is_idle ||
+             s2_stop        ||
+             s2_fill_vld
 
 
   //
