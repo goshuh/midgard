@@ -322,8 +322,8 @@ class VLB(val P: Param, N: Int) extends Module {
   val s1_vpn_q   = RegEnable(s0_vpn, s0_vld)
   val s1_hit_q   = RegEnable(s0_hit, s0_vld).U
 
-  val s2_idx_q   = dontTouch(Wire(Bool()))
-  val s2_vpn_q   = dontTouch(Wire(Bool()))
+  val s2_idx_q   = dontTouch(Wire(UInt(vlbIdx.W)))
+  val s2_vpn_q   = dontTouch(Wire(UInt(vpnBits.W)))
 
   // qualified
   val s1_hit_way = s1_hit_q & vld_q.U
