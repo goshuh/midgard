@@ -1,7 +1,5 @@
 package midgard
 
-import  java.io.File
-
 import  chisel3._
 import  chisel3.util._
 import  chisel3.stage._
@@ -20,13 +18,13 @@ package frontside {
     val Q = P.copy(tlbEn = true)
 
     val ilb_req_i  = IO(Vec(2, Flipped(    Valid(new VLBReq (Q)))))
-    val ilb_resp_o = IO(Vec(2,             Valid(new VLBResp(P))))
-    val ilb_fill_o = IO(                   Valid(new VLBResp(P)))
-    val ilb_kill_i = IO(                   Input(UInt(2.W)))
+    val ilb_resp_o = IO(Vec(2,             Valid(new VLBResp(Q))))
+    val ilb_fill_o = IO(                   Valid(new VLBResp(Q)))
+    val ilb_kill_i = IO(                   Input(UInt(3.W)))
     val ilb_busy_o = IO(                  Output(Bool()))
 
-    val dlb_req_i  = IO(       Flipped(    Valid(new VLBReq (P))))
-    val dlb_resp_o = IO(                   Valid(new VLBResp(P)))
+    val dlb_req_i  = IO(Vec(2, Flipped(    Valid(new VLBReq (P)))))
+    val dlb_resp_o = IO(Vec(2,             Valid(new VLBResp(P))))
     val dlb_fill_o = IO(                   Valid(new VLBResp(P)))
     val dlb_kill_i = IO(                   Input(UInt(2.W)))
     val dlb_busy_o = IO(                  Output(Bool()))
@@ -41,7 +39,7 @@ package frontside {
     // inst
 
     val u_ilb = Module(new VLB(Q, 2))
-    val u_dlb = Module(new VLB(P, 1))
+    val u_dlb = Module(new VLB(P, 2))
     val u_ptw = Module(new PTW(P, 2))
 
     val ilb_ptw_req  = u_ilb.ptw_req_o.fire()
@@ -62,8 +60,10 @@ package frontside {
     u_ilb.kill_i        := ilb_kill_i
     u_ilb.kill_asid_i   := asid
 
-    u_dlb.vlb_req_i (0) <> dlb_req_i
-    u_dlb.vlb_resp_o(0) <> dlb_resp_o
+    u_dlb.vlb_req_i (0) <> dlb_req_i (0)
+    u_dlb.vlb_req_i (1) <> dlb_req_i (1)
+    u_dlb.vlb_resp_o(0) <> dlb_resp_o(0)
+    u_dlb.vlb_resp_o(1) <> dlb_resp_o(1)
     u_dlb.vlb_fill_o    <> dlb_fill_o
     u_dlb.ptw_req_o     <> u_ptw.vlb_req_i (1)
     u_dlb.ptw_resp_i    <> u_ptw.vlb_resp_o(1)
@@ -114,7 +114,7 @@ object Main extends App {
     dbg       = false
   )
 
-  new File("gen").mkdir()
+  new java.io.File("gen").mkdir()
 
   val stage = new ChiselStage()
   val param = Array("--target-dir", "gen")

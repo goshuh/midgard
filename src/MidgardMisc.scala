@@ -202,7 +202,7 @@ package object util {
   }
 
   def OHp(d: UInt, z: Bool): Bool = {
-    z && Non(d) || Any(z & ShL(OrL(z), 1))
+    Non(d & ShL(OrL(d), 1)) && (z || Any(d))
   }
 
   def Dec = UIntToOH
