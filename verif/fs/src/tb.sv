@@ -64,18 +64,31 @@ module tb;
     m_dlb (.clock (clock),
            .reset (reset));
 
+    tb_vlb_intf
+    m_elb (.clock (clock),
+           .reset (reset));
+
     tb_mem_intf
     m_mem (.clock (clock),
            .reset (reset));
 
-    wire        vlb_fill_o_valid;
-    wire [ 5:0] vlb_fill_o_bits_idx;
-    wire        vlb_fill_o_bits_vld;
-    wire        vlb_fill_o_bits_err;
-    wire [51:0] vlb_fill_o_bits_mpn;
-    wire [ 3:0] vlb_fill_o_bits_attr;
-    wire [ 1:0] vlb_kill_i;
-    wire        vlb_busy_o;
+    wire        ilb_fill_o_valid;
+    wire [ 5:0] ilb_fill_o_bits_idx;
+    wire        ilb_fill_o_bits_vld;
+    wire        ilb_fill_o_bits_err;
+    wire [51:0] ilb_fill_o_bits_mpn;
+    wire [ 3:0] ilb_fill_o_bits_attr;
+    wire [ 2:0] ilb_kill_i;
+    wire        ilb_busy_o;
+
+    wire        dlb_fill_o_valid;
+    wire [ 5:0] dlb_fill_o_bits_idx;
+    wire        dlb_fill_o_bits_vld;
+    wire        dlb_fill_o_bits_err;
+    wire [51:0] dlb_fill_o_bits_mpn;
+    wire [ 3:0] dlb_fill_o_bits_attr;
+    wire [ 2:0] dlb_kill_i;
+    wire        dlb_busy_o;
 
     FST
     u_fst (.clock                  (clock                         ),
@@ -100,32 +113,42 @@ module tb;
            .ilb_resp_o_1_bits_err  (m_jlb.vlb_resp_o_bits_err     ),
            .ilb_resp_o_1_bits_mpn  (m_jlb.vlb_resp_o_bits_mpn     ),
            .ilb_resp_o_1_bits_attr (m_jlb.vlb_resp_o_bits_attr    ),
-           .ilb_fill_o_valid       (vlb_fill_o_valid              ),
-           .ilb_fill_o_bits_idx    (vlb_fill_o_bits_idx           ),
-           .ilb_fill_o_bits_vld    (vlb_fill_o_bits_vld           ),
-           .ilb_fill_o_bits_err    (vlb_fill_o_bits_err           ),
-           .ilb_fill_o_bits_mpn    (vlb_fill_o_bits_mpn           ),
-           .ilb_fill_o_bits_attr   (vlb_fill_o_bits_attr          ),
-           .ilb_kill_i             (vlb_kill_i                    ),
-           .ilb_busy_o             (vlb_busy_o                    ),
-           .dlb_req_i_valid        (m_dlb.vlb_req_i_valid         ),
-           .dlb_req_i_bits_idx     (m_dlb.vlb_req_i_bits_idx      ),
-           .dlb_req_i_bits_vpn     (m_dlb.vlb_req_i_bits_vpn      ),
-           .dlb_req_i_bits_kill    (m_dlb.vlb_req_i_bits_kill[1:0]),
-           .dlb_resp_o_valid       (m_dlb.vlb_resp_o_valid        ),
-           .dlb_resp_o_bits_idx    (m_dlb.vlb_resp_o_bits_idx     ),
-           .dlb_resp_o_bits_vld    (m_dlb.vlb_resp_o_bits_vld     ),
-           .dlb_resp_o_bits_err    (m_dlb.vlb_resp_o_bits_err     ),
-           .dlb_resp_o_bits_mpn    (m_dlb.vlb_resp_o_bits_mpn     ),
-           .dlb_resp_o_bits_attr   (m_dlb.vlb_resp_o_bits_attr    ),
-           .dlb_fill_o_valid       (m_dlb.vlb_fill_o_valid        ),
-           .dlb_fill_o_bits_idx    (m_dlb.vlb_fill_o_bits_idx     ),
-           .dlb_fill_o_bits_vld    (m_dlb.vlb_fill_o_bits_vld     ),
-           .dlb_fill_o_bits_err    (m_dlb.vlb_fill_o_bits_err     ),
-           .dlb_fill_o_bits_mpn    (m_dlb.vlb_fill_o_bits_mpn     ),
-           .dlb_fill_o_bits_attr   (m_dlb.vlb_fill_o_bits_attr    ),
-           .dlb_kill_i             (m_dlb.vlb_kill_i              ),
-           .dlb_busy_o             (m_dlb.vlb_busy_o              ),
+           .ilb_fill_o_valid       (ilb_fill_o_valid              ),
+           .ilb_fill_o_bits_idx    (ilb_fill_o_bits_idx           ),
+           .ilb_fill_o_bits_vld    (ilb_fill_o_bits_vld           ),
+           .ilb_fill_o_bits_err    (ilb_fill_o_bits_err           ),
+           .ilb_fill_o_bits_mpn    (ilb_fill_o_bits_mpn           ),
+           .ilb_fill_o_bits_attr   (ilb_fill_o_bits_attr          ),
+           .ilb_kill_i             (ilb_kill_i                    ),
+           .ilb_busy_o             (ilb_busy_o                    ),
+           .dlb_req_i_0_valid      (m_dlb.vlb_req_i_valid         ),
+           .dlb_req_i_0_bits_idx   (m_dlb.vlb_req_i_bits_idx      ),
+           .dlb_req_i_0_bits_vpn   (m_dlb.vlb_req_i_bits_vpn      ),
+           .dlb_req_i_0_bits_kill  (m_dlb.vlb_req_i_bits_kill[1:0]),
+           .dlb_resp_o_0_valid     (m_dlb.vlb_resp_o_valid        ),
+           .dlb_resp_o_0_bits_idx  (m_dlb.vlb_resp_o_bits_idx     ),
+           .dlb_resp_o_0_bits_vld  (m_dlb.vlb_resp_o_bits_vld     ),
+           .dlb_resp_o_0_bits_err  (m_dlb.vlb_resp_o_bits_err     ),
+           .dlb_resp_o_0_bits_mpn  (m_dlb.vlb_resp_o_bits_mpn     ),
+           .dlb_resp_o_0_bits_attr (m_dlb.vlb_resp_o_bits_attr    ),
+           .dlb_req_i_1_valid      (m_elb.vlb_req_i_valid         ),
+           .dlb_req_i_1_bits_idx   (m_elb.vlb_req_i_bits_idx      ),
+           .dlb_req_i_1_bits_vpn   (m_elb.vlb_req_i_bits_vpn      ),
+           .dlb_req_i_1_bits_kill  (m_elb.vlb_req_i_bits_kill[1:0]),
+           .dlb_resp_o_1_valid     (m_elb.vlb_resp_o_valid        ),
+           .dlb_resp_o_1_bits_idx  (m_elb.vlb_resp_o_bits_idx     ),
+           .dlb_resp_o_1_bits_vld  (m_elb.vlb_resp_o_bits_vld     ),
+           .dlb_resp_o_1_bits_err  (m_elb.vlb_resp_o_bits_err     ),
+           .dlb_resp_o_1_bits_mpn  (m_elb.vlb_resp_o_bits_mpn     ),
+           .dlb_resp_o_1_bits_attr (m_elb.vlb_resp_o_bits_attr    ),
+           .dlb_fill_o_valid       (dlb_fill_o_valid              ),
+           .dlb_fill_o_bits_idx    (dlb_fill_o_bits_idx           ),
+           .dlb_fill_o_bits_vld    (dlb_fill_o_bits_vld           ),
+           .dlb_fill_o_bits_err    (dlb_fill_o_bits_err           ),
+           .dlb_fill_o_bits_mpn    (dlb_fill_o_bits_mpn           ),
+           .dlb_fill_o_bits_attr   (dlb_fill_o_bits_attr          ),
+           .dlb_kill_i             (dlb_kill_i                    ),
+           .dlb_busy_o             (dlb_busy_o                    ),
            .mem_req_o_ready        (m_mem.mem_req_o_ready         ),
            .mem_req_o_valid        (m_mem.mem_req_o_valid         ),
            .mem_req_o_bits_mcn     (m_mem.mem_req_o_bits_mcn      ),
@@ -141,14 +164,14 @@ module tb;
     always_ff @(posedge clock or posedge reset)
         if (reset)
             ilb_kill_q <= 1'b0;
-        else if (m_ilb.vlb_kill_i[1] | vlb_kill_i[1])
-            ilb_kill_q <= m_ilb.vlb_kill_i[1] & ~vlb_kill_i[1];
+        else if (m_ilb.vlb_kill_i[1] | ilb_kill_i[1])
+            ilb_kill_q <= m_ilb.vlb_kill_i[1] & ~ilb_kill_i[1];
 
     always_ff @(posedge clock or posedge reset)
         if (reset)
             jlb_kill_q <= 1'b0;
-        else if (m_jlb.vlb_kill_i[1] | vlb_kill_i[1])
-            jlb_kill_q <= m_jlb.vlb_kill_i[1] & ~vlb_kill_i[1];
+        else if (m_jlb.vlb_kill_i[1] | ilb_kill_i[1])
+            jlb_kill_q <= m_jlb.vlb_kill_i[1] & ~ilb_kill_i[1];
 
     always_ff @(posedge clock) begin
         m_ilb.vlb_req_i_valid_q    <= m_ilb.vlb_req_i_valid;
@@ -157,29 +180,53 @@ module tb;
         m_jlb.vlb_req_i_bits_idx_q <= m_jlb.vlb_req_i_bits_idx;
     end
 
-    assign vlb_kill_i = {(m_ilb.vlb_kill_i[1] | ilb_kill_q) &
-                         (m_jlb.vlb_kill_i[1] | jlb_kill_q),
-                          m_ilb.vlb_kill_i[0] |
-                          m_jlb.vlb_kill_i[0]};
+    assign ilb_kill_i = {{2{(m_ilb.vlb_kill_i[1] | ilb_kill_q) &
+                            (m_jlb.vlb_kill_i[1] | jlb_kill_q)}},
+                             m_ilb.vlb_kill_i[0] |
+                             m_jlb.vlb_kill_i[0]};
 
-    assign m_ilb.vlb_busy_o           = vlb_busy_o       & ~vlb_fill_o_bits_idx[5];
-    assign m_ilb.vlb_fill_o_valid     = vlb_fill_o_valid & ~vlb_fill_o_bits_idx[5];
-    assign m_ilb.vlb_fill_o_bits_idx  = vlb_fill_o_bits_idx;
-    assign m_ilb.vlb_fill_o_bits_vld  = vlb_fill_o_bits_vld;
-    assign m_ilb.vlb_fill_o_bits_err  = vlb_fill_o_bits_err;
-    assign m_ilb.vlb_fill_o_bits_mpn  = vlb_fill_o_bits_mpn;
-    assign m_ilb.vlb_fill_o_bits_attr = vlb_fill_o_bits_attr;
+    assign dlb_kill_i = {{2{ m_dlb.vlb_kill_i[1] |
+                             m_elb.vlb_kill_i[1]}},
+                             m_dlb.vlb_kill_i[0] |
+                             m_elb.vlb_kill_i[0]};
 
-    assign m_jlb.vlb_busy_o           = vlb_busy_o       &  vlb_fill_o_bits_idx[5];
-    assign m_jlb.vlb_fill_o_valid     = vlb_fill_o_valid &  vlb_fill_o_bits_idx[5];
-    assign m_jlb.vlb_fill_o_bits_idx  = vlb_fill_o_bits_idx;
-    assign m_jlb.vlb_fill_o_bits_vld  = vlb_fill_o_bits_vld;
-    assign m_jlb.vlb_fill_o_bits_err  = vlb_fill_o_bits_err;
-    assign m_jlb.vlb_fill_o_bits_mpn  = vlb_fill_o_bits_mpn;
-    assign m_jlb.vlb_fill_o_bits_attr = vlb_fill_o_bits_attr;
+    assign m_ilb.vlb_busy_o           = ilb_busy_o       & ~ilb_fill_o_bits_idx[5];
+    assign m_ilb.vlb_fill_o_valid     = ilb_fill_o_valid & ~ilb_fill_o_bits_idx[5];
+    assign m_ilb.vlb_fill_o_bits_idx  = ilb_fill_o_bits_idx;
+    assign m_ilb.vlb_fill_o_bits_vld  = ilb_fill_o_bits_vld;
+    assign m_ilb.vlb_fill_o_bits_err  = ilb_fill_o_bits_err;
+    assign m_ilb.vlb_fill_o_bits_mpn  = ilb_fill_o_bits_mpn;
+    assign m_ilb.vlb_fill_o_bits_attr = ilb_fill_o_bits_attr;
+
+    assign m_jlb.vlb_busy_o           = ilb_busy_o       &  ilb_fill_o_bits_idx[5];
+    assign m_jlb.vlb_fill_o_valid     = ilb_fill_o_valid &  ilb_fill_o_bits_idx[5];
+    assign m_jlb.vlb_fill_o_bits_idx  = ilb_fill_o_bits_idx;
+    assign m_jlb.vlb_fill_o_bits_vld  = ilb_fill_o_bits_vld;
+    assign m_jlb.vlb_fill_o_bits_err  = ilb_fill_o_bits_err;
+    assign m_jlb.vlb_fill_o_bits_mpn  = ilb_fill_o_bits_mpn;
+    assign m_jlb.vlb_fill_o_bits_attr = ilb_fill_o_bits_attr;
+
+    assign m_dlb.vlb_busy_o           = dlb_busy_o       & ~dlb_fill_o_bits_idx[5];
+    assign m_dlb.vlb_fill_o_valid     = dlb_fill_o_valid & ~dlb_fill_o_bits_idx[5];
+    assign m_dlb.vlb_fill_o_bits_idx  = dlb_fill_o_bits_idx;
+    assign m_dlb.vlb_fill_o_bits_vld  = dlb_fill_o_bits_vld;
+    assign m_dlb.vlb_fill_o_bits_err  = dlb_fill_o_bits_err;
+    assign m_dlb.vlb_fill_o_bits_mpn  = dlb_fill_o_bits_mpn;
+    assign m_dlb.vlb_fill_o_bits_attr = dlb_fill_o_bits_attr;
+
+    assign m_elb.vlb_busy_o           = dlb_busy_o       &  dlb_fill_o_bits_idx[5];
+    assign m_elb.vlb_fill_o_valid     = dlb_fill_o_valid &  dlb_fill_o_bits_idx[5];
+    assign m_elb.vlb_fill_o_bits_idx  = dlb_fill_o_bits_idx;
+    assign m_elb.vlb_fill_o_bits_vld  = dlb_fill_o_bits_vld;
+    assign m_elb.vlb_fill_o_bits_err  = dlb_fill_o_bits_err;
+    assign m_elb.vlb_fill_o_bits_mpn  = dlb_fill_o_bits_mpn;
+    assign m_elb.vlb_fill_o_bits_attr = dlb_fill_o_bits_attr;
 
     assign m_dlb.vlb_req_i_valid_q    = 1'b0;
     assign m_dlb.vlb_req_i_bits_idx_q = 6'b0;
+
+    assign m_elb.vlb_req_i_valid_q    = 1'b0;
+    assign m_elb.vlb_req_i_bits_idx_q = 6'b0;
 
     //
     // err delaying
@@ -201,7 +248,7 @@ module tb;
     tb_env m_env;
 
     initial begin
-        m_env = new(m_ilb, m_jlb, m_dlb, m_mem);
+        m_env = new(m_ilb, m_jlb, m_dlb, m_elb, m_mem);
 
         @(negedge reset);
         @(posedge clock);

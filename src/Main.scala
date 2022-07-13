@@ -26,7 +26,7 @@ package frontside {
     val dlb_req_i  = IO(Vec(2, Flipped(    Valid(new VLBReq (P)))))
     val dlb_resp_o = IO(Vec(2,             Valid(new VLBResp(P))))
     val dlb_fill_o = IO(                   Valid(new VLBResp(P)))
-    val dlb_kill_i = IO(                   Input(UInt(2.W)))
+    val dlb_kill_i = IO(                   Input(UInt(3.W)))
     val dlb_busy_o = IO(                  Output(Bool()))
 
     val mem_req_o  = IO(               Decoupled(new MemReq (P)))

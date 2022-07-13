@@ -8,6 +8,7 @@ class tb_env extends tb_base;
     tb_vlb    m_uvc_ilb;
     tb_vlb    m_uvc_jlb;
     tb_vlb    m_uvc_dlb;
+    tb_vlb    m_uvc_elb;
     tb_l1d    m_uvc_l1d;
 
     ma_mem    m_l1d;
@@ -17,7 +18,7 @@ class tb_env extends tb_base;
 
     int       m_stg;
 
-    function new(input tb_vif ilb, tb_vif jlb, tb_vif dlb, ma_vif mem);
+    function new(input tb_vif ilb, tb_vif jlb, tb_vif dlb, tb_vif elb, ma_vif mem);
         verif::plusargs arg = new("tb.");
 
        `set(tb_env,  "env", this);
@@ -35,16 +36,18 @@ class tb_env extends tb_base;
        `set(tb_gen,  "gen", m_gen);
        `set(tb_seq,  "seq", m_seq);
 
+        // see: tb.sv
         m_uvc_ilb = new(ilb, "ilb", 0,           vlbWays / 2);
         m_uvc_jlb = new(jlb, "jlb", vlbWays / 2, vlbWays);
-        m_uvc_dlb = new(dlb, "dlb", 0,           vlbWays);
+        m_uvc_dlb = new(dlb, "dlb", 0,           vlbWays / 2);
+        m_uvc_elb = new(elb, "elb", vlbWays / 2, vlbWays);
         m_uvc_l1d = new(mem);
 
         m_stg     = 0;;
     endfunction
 
     task blk(input int v);
-        @(m_stg == v);
+        wait(m_stg == v);
     endtask
 
     function int get();
@@ -65,14 +68,15 @@ class tb_env extends tb_base;
 
     task main();
         fork
-            // 0 -> 3: ilb/jlb/dlb
-            // 3 -> 4: seq
-            // 4 -> 7: ilb/jlb/dlb
-            // 7 -> 0: seq
-            m_seq    .main(3, 3);
-            m_uvc_ilb.main(4, 3);
-            m_uvc_jlb.main(5, 3);
-            m_uvc_dlb.main(6, 3);
+            // 0 -> 4: ilb/jlb/dlb/elb
+            // 4 -> 5: seq
+            // 5 -> 9: ilb/jlb/dlb/elb
+            // 9 -> 0: seq
+            m_uvc_ilb.main(5, 4);
+            m_uvc_jlb.main(6, 4);
+            m_uvc_dlb.main(7, 4);
+            m_uvc_elb.main(8, 4);
+            m_seq    .main(4, 4);
             m_uvc_l1d.main();
         join
     endtask

@@ -19,7 +19,7 @@ interface tb_vlb_intf (
     bit            vlb_fill_o_bits_err;
     tb_base::mpn_t vlb_fill_o_bits_mpn;
     bit [     3:0] vlb_fill_o_bits_attr;
-    bit [     1:0] vlb_kill_i;
+    bit [     2:0] vlb_kill_i;
     bit            vlb_busy_o;
 
     // tb usage
