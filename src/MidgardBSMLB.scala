@@ -247,10 +247,10 @@ class MLB(P: Param) extends Module {
 
 
   //
-  // huge page
+  // huge page & bypass
 
+  val mlb_resp_vld = s2_hit || ptw_resp_i.valid
   val mlb_resp_mux = ptw_fsm_is_resp ?? ptw_resp_i.bits :: mlb_data
-  val mlb_resp     = WireInit(mlb_resp_mux)
 
   // reconstruct the request mpn
   val mlb_resp_mpn = mlb_resp_mux.mpn ## (ptw_fsm_is_resp ?? s3_mpn_q(P.mlbIdx.W) ::
@@ -273,9 +273,12 @@ class MLB(P: Param) extends Module {
   val mlb_resp_ppn = OrM(Dec(mlb_resp_mux.lvl)(P.ptwLvl.W),
                          Seq.tabulate(P.ptwLvl)(gen_ppn))
 
-  mlb_resp.ppn := mlb_resp_ppn
+  val mlb_resp     = MLBResp(P,
+                             mlb_resp_mux.err,
+                             mlb_resp_ppn,
+                             mlb_resp_mux.attr)
 
-  // bypassed if mmu is not enabled
+  // mmu not enabled
   val byp_resp_vld = RegNext(mrq_req && !mmu_on)
   val byp_resp     = MLBResp(P,
                              false.B,
@@ -288,8 +291,8 @@ class MLB(P: Param) extends Module {
 
   mrq_req_i.ready  := mlb_idle && !rst_pend && !rst_i
 
-  mrq_resp_o.valid := mmu_on ?? (s2_hit || ptw_resp_i.valid) :: byp_resp_vld
-  mrq_resp_o.bits  := mmu_on ??  mlb_resp                    :: byp_resp
+  mrq_resp_o.valid := mmu_on ?? mlb_resp_vld :: byp_resp_vld
+  mrq_resp_o.bits  := mmu_on ?? mlb_resp     :: byp_resp
 
   ptw_req_o.valid  := ptw_fsm_is_req
   ptw_req_o.bits   := MLBReq(P,

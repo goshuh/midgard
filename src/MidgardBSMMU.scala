@@ -160,6 +160,7 @@ class MMU(val P: Param) extends Module {
 
   u_mlb.ptw_req_o  <> u_ptw.mlb_req_i
   u_mlb.ptw_resp_i <> u_ptw.mlb_resp_o
+  u_mlb.ctl_i      := ctl_q
 
   u_mlb.rst_i      := rst_q
 
