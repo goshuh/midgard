@@ -104,7 +104,7 @@ class MLB(P: Param) extends Module {
 
   val mmu_on  = ctl_i(0)(0)
 
-  val mrq_req = mrq_req_i.fire() && mmu_on
+  val mrq_req = mrq_req_i.fire()
 
 
   //
@@ -142,7 +142,7 @@ class MLB(P: Param) extends Module {
                        0.U,
                        rst_req || !rst_done)
 
-    val s0_ren     = mrq_req
+    val s0_ren     = mrq_req && mmu_on
     val s1_ren_q   = RegNext(s0_ren,   false.B)
     val s2_ren_q   = RegNext(s1_ren_q, false.B)
 
@@ -207,7 +207,7 @@ class MLB(P: Param) extends Module {
     mlb_data := MLBEntry(P)
 
     s2_hit   := false.B
-    s2_mis   := mrq_req
+    s2_mis   := mrq_req && mmu_on
     s2_mpn   := mrq_req_i.bits.mpn
   }
 
