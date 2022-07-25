@@ -105,7 +105,7 @@ class PTW(P: Param) extends Module {
   val mrq_req_o  = IO(        Decoupled(new MemReq(P)))
   val mrq_resp_i = IO(Flipped(Decoupled(new MemResp(P))))
 
-  val ctl_i      = IO(            Input(Vec(P.ptwLvl + 1, UInt(P.maBits.W))))
+  val ctl_i      = IO(            Input(Vec (P.ptwLvl + 1, UInt(P.maBits.W))))
   val rst_i      = IO(            Input(Bool()))
 
 
