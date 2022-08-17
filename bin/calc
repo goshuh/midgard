@@ -1,0 +1,92 @@
+#!/usr/bin/python
+
+import argparse
+
+
+def push_any(args, dic, s, w):
+    lo  = args.cur
+    hi  = min(args.t, lo + w - 1)
+
+    tbn = hi // 64
+    tbi = hi %  64
+    bbn = lo // 64
+    bbi = lo %  64
+
+    dic[s] = f'{{.tbn = {tbn:2}, .tbi = {tbi:2}, .bbn = {bbn:2}, .bbi = {bbi:2}}}'
+
+    args.cur += w
+
+
+def push_vma(args, dic, s):
+    sub = {}
+
+    # in the order of appearance
+    push_any(args, sub, 'offs',  args.vpn)
+    push_any(args, sub, 'bound', args.vpn)
+    push_any(args, sub, 'base',  args.vpn)
+    push_any(args, sub, 'attr',  args.a)
+    push_any(args, sub, 'err',   1)
+    push_any(args, sub, 'vld',   1)
+
+    dic[s] = sub
+
+
+def calc(args):
+    dic        = {}
+    dic['vma'] = {}
+    dic['ptr'] = {}
+
+    # in the order of appearance
+    for i in range(args.n):
+        push_vma(args, dic['vma'], i)
+
+    for i in range(args.n + 1):
+        push_any(args, dic['ptr'], i, args.mcn)
+
+    push_any(args, dic, 'bot', 1)
+    push_any(args, dic, 'pad', 1024)
+
+    return dic
+
+
+def output(args, dic):
+    for k, v in dic.items():
+        match k:
+            case 'vma':
+                print(f'    .{k:3} = {{')
+                for i in range(args.n):
+                    print(f'        {{')
+                    for l, w in v[i].items():
+                        print(f'            .{l:5} = {w},')
+                    print(f'        }},')
+                print(f'    }},')
+
+            case 'ptr':
+                print(f'    .{k:3} = {{')
+                for i in range(args.n + 1):
+                    print(f'        {v[i]},')
+                print(f'    }},')
+
+            case _:
+                print(f'    .{k:3} = {v},')
+
+
+def parse_args():
+    args = argparse.ArgumentParser(description = 'calc')
+    args.add_argument('-v', default = 64,   type = int,  help = 'VA bits')
+    args.add_argument('-m', default = 64,   type = int,  help = 'MA bits')
+    args.add_argument('-a', default = 10,   type = int,  help = 'attribute bits')
+    args.add_argument('-n', default = 4,    type = int,  help = 'number of VMAs')
+    args.add_argument('-t', default = 1023, type = int,  help = 'total bits')
+
+    return args.parse_args()
+
+
+if __name__ == '__main__':
+    args = parse_args()
+
+    args.vpn = args.v - 12
+    args.mcn = args.m - 6
+    args.cur = 0
+
+    output(args, calc(args))
