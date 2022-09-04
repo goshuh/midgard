@@ -210,6 +210,7 @@ class VLB(val P: Param, N: Int) extends Module {
   val sp_kill    = vlb_req_i.map(e => e.bits.kill)
   val sp_hit     = dontTouch(Wire(Vec(N, Bool())))
   val sp_mis     = dontTouch(Wire(Vec(N, Bool())))
+  val sp_err     = dontTouch(Wire(Vec(N, Bool())))
   val sp_hit_mux = dontTouch(Wire(Vec(N, new TLBEntry(P))))
 
   // forward decl
@@ -239,11 +240,16 @@ class VLB(val P: Param, N: Int) extends Module {
       val sp_ptw_hit = sp_fill_vld_qual &&
                        sp_fill_pld.hit(sp_vpn(i), asid_i)
 
-      sp_hit(i) := sp_vld(i) &&  hit_any
-      sp_mis(i) := sp_vld(i) && !hit_any && !sp_ptw_hit
+      sp_hit(i) := sp_vld(i) && !sp_err(i) && (hit_any ||  sp_ptw_hit)
+      sp_mis(i) := sp_vld(i) && !sp_err(i) && !hit_any && !sp_ptw_hit
 
-      // refilling case excluded for timing
-      sp_hit_mux(i) := OrM(hit_way, tlb_q)
+      sp_hit_mux(i) := sp_ptw_hit ?? TLBEntry(P,
+                                              sp_fill_pld.err,
+                                              sp_vpn(i),
+                                              sp_fill_pld.mpn,
+                                              sp_fill_pld.attr,
+                                              sp_fill_pld.asid) ::
+                                     OrM(hit_way, tlb_q)
 
       assert(sp_vld(i) -> OHp(hit_way ## sp_ptw_hit, true.B))
     }
@@ -317,7 +323,6 @@ class VLB(val P: Param, N: Int) extends Module {
   val s0_hit     = dontTouch(Wire(Vec(P.vlbWays, Bool())))
 
   // body
-  val vld_q = dontTouch(Wire(Vec(P.vlbWays, Bool())))
   val vlb_q = dontTouch(Wire(Vec(P.vlbWays, new VLBEntry(P))))
 
   for (i <- 0 until P.vlbWays) {
@@ -331,12 +336,12 @@ class VLB(val P: Param, N: Int) extends Module {
     s0_hit(i) := rpl && s0_ptw_hit ||
                  hit && sx_qual && !set && !clr
 
-    vlb_q (i) := RegEnable(s2_fill_pld,  set)
-    vld_q (i) := RegEnable(set, false.B, set || clr)
+    vlb_q(i)     := RegEnable(s2_fill_pld,  set)
+    vlb_q(i).vld := RegEnable(set, false.B, set || clr)
   }
 
-  val s2_inv_way = ~vld_q.U
-  val s2_rpl_way =  vld_q.U & vlb_q.map(_.asid =/= asid_i).U
+  val s2_inv_way = ~vlb_q.map(e => e.vld).U
+  val s2_rpl_way =  vlb_q.map(e => e.vld && (e.asid =/= asid_i)).U
 
 
   //
@@ -347,25 +352,26 @@ class VLB(val P: Param, N: Int) extends Module {
   val s1_idx_q   = RegEnable(s0_idx, s0_vld)
   val s1_vpn_q   = RegEnable(s0_vpn, s0_vld)
   val s1_hit_q   = RegEnable(s0_hit, s0_vld).U
+  val s1_err_q   = dontTouch(Wire(Bool()))
 
   val s2_idx_q   = dontTouch(Wire(UInt(P.vlbIdx.W)))
   val s2_vpn_q   = dontTouch(Wire(UInt(P.vpnBits.W)))
 
   // qualified
-  val s1_hit_way = s1_hit_q & vld_q.U
+  val s1_hit_way = s1_hit_q & vlb_q.map(_.vld).U
   val s1_hit_any = Any(s1_hit_way)
 
   assert(s1_vld_q -> OHp(s1_hit_way, true.B))
 
-  val s1_vld     = s1_vld_q && !s1_kill && sx_qual
-  val s1_hit     = s1_vld   &&  s1_hit_any
-  val s1_mis     = s1_vld   && !s1_hit_any
+  val s1_vld     = s1_vld_q && !s1_kill  &&  sx_qual
+  val s1_hit     = s1_vld   && !s1_err_q &&  s1_hit_any
+  val s1_mis     = s1_vld   && !s1_err_q && !s1_hit_any
   val s1_hit_mux = OrM(s1_hit_way, vlb_q)
 
   // not a second mux
   // the two muxes actually mux different parts of vlb_q
   val s1_mpn     = s1_vpn_q + RegEnable(s0_ptw_hit ?? ptw_resp_i.bits.offs ::
-                                                      OrM(s0_hit.U & vld_q.U, vlb_q.map(_.offs)),
+                                                      OrM(s0_hit.U & vlb_q.map(_.vld).U, vlb_q.map(_.offs)),
                                         s0_vld)
 
   // incoming ptw fill can also hit missed s1 req
@@ -437,7 +443,7 @@ class VLB(val P: Param, N: Int) extends Module {
   val s2_fsm_is_resp = s2_fsm_q === fsm_resp
 
   s2_fill_vld      := ptw_resp_i.valid && s2_fsm_is_resp && !s2_kill
-  s2_fill_vld_qual := s2_fill_vld && ptw_resp_i.bits.vld && !ptw_resp_i.bits.err
+  s2_fill_vld_qual := s2_fill_vld && ptw_resp_i.bits.vld
   s2_fill_rpl      := Any(s2_inv_way) ?? PrL(s2_inv_way) ::
                       Any(s2_rpl_way) ?? PrL(s2_rpl_way) ::
                                          PRA(P.vlbWays, s2_fill_vld_qual)
@@ -453,6 +459,36 @@ class VLB(val P: Param, N: Int) extends Module {
              s2_kill        ||
              s2_fill_vld
 
+  // error entry
+  val s2_err_resp  = s2_fill_vld && !ptw_resp_i.bits.vld
+
+  // clear upon hit or any special event
+  val s2_err_clr   = Any(sp_err) ||
+                     s1_err_q    ||
+                     sx_kill
+
+  val s2_err_vld_q = RegEnable(s2_err_resp && !s2_err_clr,
+                               false.B,
+                               s2_err_resp ||  s2_err_clr)
+
+  val s2_err_vpn_q = RegEnable(s2_vpn_q,
+                               s2_err_resp)
+
+  def s2_err(vld: Bool, vpn: UInt): Bool = {
+    vld && (s2_err_vld_q && (vpn === s2_err_vpn_q) && !s1_err_q ||
+            s2_err_resp  && (vpn === s2_vpn_q))
+  }
+
+  for (i <- 0 until N) {
+    if (P.tlbEn) {
+      sp_err(i) := s2_err(sp_vld(i), sp_vpn(i))
+    } else {
+      sp_err(i) := false.B
+    }
+  }
+
+  s1_err_q := RegNext(s2_err(s0_vld, s0_vpn))
+
 
   //
   // output
@@ -462,8 +498,8 @@ class VLB(val P: Param, N: Int) extends Module {
       vlb_resp_o(i).valid := sp_vld(i)
       vlb_resp_o(i).bits  := VLBResp(P,
                                      sp_idx(i),
-                                     sp_hit(i),
-                                     sp_hit_mux(i).err,
+                                     sp_hit(i)         || sp_err(i),
+                                     sp_hit_mux(i).err || sp_err(i),
                                      sp_hit_mux(i).mpn,
                                      sp_hit_mux(i).attr)
     }
@@ -472,8 +508,8 @@ class VLB(val P: Param, N: Int) extends Module {
       vlb_resp_o(i).valid := s1_vld && s1_req_q(i).valid
       vlb_resp_o(i).bits  := VLBResp(P,
                                      s1_req_q(i).bits.idx,
-                                     s1_hit && s1_sel_q(i),
-                                     s1_hit_mux.err,
+                                     s1_sel_q(i) && (s1_hit         || s1_err_q),
+                                     s1_sel_q(i) &&  s1_hit_mux.err && s1_err_q,
                                      s1_mpn,
                                      s1_hit_mux.attr)
     }
