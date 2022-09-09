@@ -204,6 +204,8 @@ class MRQ(val P: Param) extends Module {
     val fwd_rdy = req_fwd(i) && req_fwd_rdy ||
                  !req_fwd(i)
 
+    val hit_wnr = hit && req_wnr
+
     // fsm
     val mrq_fsm_en  = dontTouch(Wire(Bool()))
     val mrq_fsm_nxt = dontTouch(Wire(UInt(3.W)))
@@ -233,11 +235,11 @@ class MRQ(val P: Param) extends Module {
         mrq_fsm_nxt := fwd_rdy     ?? mrq_fsm_fwd  :: mrq_fsm_idle
       }
       // another idle state, wait-for-forwarding (and -allocation)
-      // slot stops forwarding when hit by a new same-line req. same-line read is just served by it
+      // slot stops forwarding when hit by a new same-line write. same-line read is just served by it
       is (mrq_fsm_fwd) {
         mrq_fsm_en  := mrq_set(i)  || hit
         mrq_fsm_nxt := mrq_set(i)  ?? mrq_set_nxt  ::
-                       req_wnr     ?? mrq_fsm_idle ::
+                       hit_wnr     ?? mrq_fsm_idle ::
                        req_fwd_rdy ?? mrq_fsm_fwd  ::
                                       mrq_fsm_idle
       }
@@ -351,7 +353,7 @@ class MRQ(val P: Param) extends Module {
   val fwd_resp = MemResp(P,
                          mrq_fwd_mux.idx,
                          mrq_fwd_mux.err,
-                         mrq_fwd_mux.rnw,
+                         true.B,
                          mrq_fwd_mux.data,
                          P.llcIdx)
 

@@ -19,6 +19,18 @@ class CtlResp extends Bundle {
 }
 
 
+object CtlReq {
+  def apply(r: Bool, a: UInt, d: Data): CtlReq  = {
+    val ret = Wire(new CtlReq())
+
+    ret.rnw  := r
+    ret.addr := a
+    ret.data := d
+
+    ret
+  }
+}
+
 object CtlResp {
   def apply(s: Bool, r: Bool, d: UInt): CtlResp = {
     val ret = Wire(new CtlResp())
@@ -124,7 +136,7 @@ class MMU(val P: Param) extends Module {
   }
 
   // an extra benefit of this scheme is that once a ma can be translated, the ma
-  // of each pte than is accessed during the translation can also be translated.
+  // of each pte that is accessed during the translation can also be translated.
   // this property frees us from handling all sorts of complexity of maintaining
   // the coherence and synchronization between llc and ptc
 

@@ -60,6 +60,16 @@ object LLCReq {
   }
 }
 
+object LLCResp {
+  def apply(P: Param, h: Bool, d: UInt): LLCResp = {
+    val ret = Wire(new LLCResp(P))
+
+    ret.hit  := h
+    ret.data := d
+    ret
+  }
+}
+
 object MemReq {
   def apply(P: Param, i: UInt, r: Bool, m: UInt, p: UInt, d: UInt, w: Int = 0): MemReq = {
     val ret = Wire(new MemReq(P, w))
