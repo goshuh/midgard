@@ -209,6 +209,17 @@ package object util {
   def Enc = OHToUInt
   def OrM = Mux1H
 
+  private def exp(v: Seq[Bool], n: Int): Seq[Bool] = {
+    if (n == 0)
+      v
+    else
+      exp(RegNext(v.head) +: v, n - 1)
+  }
+
+  def Exp(b: Bool, n: Int): UInt = {
+    Cat(exp(Seq(b), n))
+  }
+
 
   case class pair[T1, +T2](a: T1, b: T2)
 

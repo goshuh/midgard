@@ -199,7 +199,6 @@ class MLB(P: Param) extends Module {
     }
 
   } else {
-
     rst_done := true.B
     rst_pend := false.B
 
