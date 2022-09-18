@@ -50,7 +50,7 @@ object PTCWrReq {
 
 class PTC(P: Param) extends Module {
 
-  // --------------------------
+  // ---------------------------
   // io
 
   val llc_req_i  = IO(Flipped(Decoupled(new MemReq (P, P.llcIdx))))
@@ -64,10 +64,8 @@ class PTC(P: Param) extends Module {
   val mrq_req_o  = IO(        Decoupled(new MemReq (P, P.llcIdx)))
   val mrq_resp_i = IO(Flipped(Decoupled(new MemResp(P, P.llcIdx))))
 
-  val clr_i      = IO(            Input(Bool()))
 
-
-  // --------------------------
+  // ---------------------------
   // logic
 
   val
@@ -77,15 +75,15 @@ class PTC(P: Param) extends Module {
       fsm_pend ::
       fsm_null) = Enum(4)
 
-  val llc_req     = llc_req_i.fire()
-  val llc_req_wnr = llc_req && !llc_req_i.bits.rnw
+  val llc_req = llc_req_i.fire
+  val mrq_req = mrq_req_o.fire
 
 
   //
   // arb
 
   // ptw always has higher priority
-  val req_vld = ptw_req_i.valid || llc_req
+  val req_vld = ptw_req_i.valid || llc_req_i.valid
   val req_mcn = ptw_req_i.valid ?? ptw_req_i.bits.mcn :: llc_req_i.bits.mcn
 
 
@@ -103,7 +101,7 @@ class PTC(P: Param) extends Module {
       // body
       val ptc_q = dontTouch(Wire(Vec(P.ptcWays(i), new PTCEntry(P))))
 
-      // same-line either in ma/pa space
+      // same-line in ma space
       val hit_way = ptc_q.map(_.hit(req_mcn)).U
       val hit_any = Any(hit_way)
 
@@ -114,22 +112,24 @@ class PTC(P: Param) extends Module {
       assert(req_vld -> OHp(hit_way, true.B))
 
       // simple pseudo-random replacement
-      val rpl_vld = upd_req_i.valid && upd_req_i.bits.lvl(i)
-      val rpl     = EnQ(rpl_vld, PRA(P.ptcWays(i), rpl_vld))
+      val upd_vld = upd_req_i.valid && upd_req_i.bits.lvl(i)
+
+      val inv_way = ptc_q.map(!_.vld).U
+      val rpl_way = Any(inv_way) ?? PrL(inv_way) ::
+                                    PRA(P.ptcWays(i), upd_vld)
 
       for (j <- 0 until P.ptcWays(i)) {
-        val upd = llc_req_wnr && hit_way(j)
+        val upd = upd_vld && rpl_way(j)
+        val wnr = llc_req && hit_way(j) && !llc_req_i.bits.rnw
 
         // respect mlb flush
-        ptc_q(j).vld  := RegEnable(rpl(j) && !clr_i,
-                                   false.B,
-                                   rpl(j) ||  clr_i)
-        ptc_q(j).mcn  := RegEnable(upd_req_i.bits.mcn, rpl(j))
+        ptc_q(j).vld  := RegEnable(upd, false.B,       upd)
+        ptc_q(j).mcn  := RegEnable(upd_req_i.bits.mcn, upd)
 
-        // llc write through
-        ptc_q(j).data := RegEnable(rpl(j) ?? upd_req_i.bits.data ::
-                                             llc_req_i.bits.data,
-                                   rpl(j) || upd)
+        // write through
+        ptc_q(j).data := RegEnable(upd ?? upd_req_i.bits.data ::
+                                          llc_req_i.bits.data,
+                                   upd || wnr)
       }
 
       lvl_hit(i) := hit
@@ -146,9 +146,30 @@ class PTC(P: Param) extends Module {
     ptc_mux := 0.U.asTypeOf(ptc_mux)
   }
 
-  // force the llc wr to go through
-  val llc_req_hit = llc_req &&  ptc_hit && !llc_req_wnr
-  val llc_req_mis = llc_req && !ptc_hit ||  llc_req_wnr
+  val llc_ptc_hit = llc_req && llc_req_i.bits.rnw && ptc_hit
+
+  // single-entry buf
+  val buf_set   = dontTouch(Wire(Bool()))
+  val buf_clr   = dontTouch(Wire(Bool()))
+
+  val buf_vld_q = RegEnable(buf_set, false.B, buf_set || buf_clr)
+  val buf_fwd_q = RegEnable(llc_ptc_hit,      buf_set)
+  val buf_q     = RegEnable(MemReq(P,
+                                   llc_req_i.bits.idx,
+                                   llc_req_i.bits.rnw,
+                                   llc_req_i.bits.mcn,
+                                   llc_req_i.bits.pcn,
+                                   llc_ptc_hit ?? ptc_mux.data :: llc_req_i.bits.data,
+                                   P.llcIdx),
+                            buf_set)
+
+  val buf_fwd   = buf_vld_q && buf_fwd_q
+  val buf_resp  = MemResp(P,
+                          buf_q.idx,
+                          false.B,
+                          buf_q.rnw,
+                          buf_q.data,
+                          P.llcIdx)
 
 
   //
@@ -159,27 +180,25 @@ class PTC(P: Param) extends Module {
   val llc_fsm_q   = dontTouch(Wire(UInt(2.W)))
   val llc_fsm_nxt = dontTouch(Wire(UInt(2.W)))
 
-  val llc_fwd_col = llc_resp_o.ready && llc_req_hit
-
   llc_fsm_en  := false.B
   llc_fsm_nxt := llc_fsm_q
 
+  val llc_resp_sel_fwd = llc_resp_o.ready && buf_fwd
+
   switch (llc_fsm_q) {
     is (fsm_idle) {
-      llc_fsm_en  := llc_req_hit || mrq_resp_i.valid
-      llc_fsm_nxt := llc_req_hit ?? fsm_fwd :: fsm_busy
+      llc_fsm_en  := buf_fwd || mrq_resp_i.valid
+      llc_fsm_nxt := buf_fwd ?? fsm_fwd :: fsm_busy
     }
     // save one cycle
     is (fsm_fwd) {
       llc_fsm_en  := llc_resp_o.ready
-      llc_fsm_nxt := llc_req_hit      ?? fsm_fwd  ::
-                     mrq_resp_i.valid ?? fsm_busy ::
-                                         fsm_idle
+      llc_fsm_nxt := mrq_resp_i.valid ?? fsm_busy :: fsm_idle
     }
     // decouple llc req/mem resp paths
     is (fsm_busy) {
-      llc_fsm_en  := llc_resp_o.ready || llc_req_hit
-      llc_fsm_nxt := llc_fwd_col      ?? fsm_fwd  ::
+      llc_fsm_en  := llc_resp_o.ready || buf_fwd
+      llc_fsm_nxt := llc_resp_sel_fwd ?? fsm_fwd  ::
                      llc_resp_o.ready ?? fsm_idle ::
                                          fsm_pend
     }
@@ -191,39 +210,35 @@ class PTC(P: Param) extends Module {
 
   llc_fsm_q := RegEnable(llc_fsm_nxt, fsm_idle, llc_fsm_en)
 
-  val llc_fsm_is_fwd = llc_fsm_q === fsm_fwd
-  val llc_fsm_is_mem = llc_fsm_q(1)
+  val llc_fsm_is_busy = llc_fsm_q =/= fsm_idle
+  val llc_fsm_is_fwd  = llc_fsm_q === fsm_fwd
+  val llc_fsm_is_mem  = llc_fsm_q(1)
+
+  buf_set := llc_req
+  buf_clr := buf_vld_q &&
+                (buf_fwd_q && llc_fsm_is_fwd && llc_resp_o.ready ||
+                !buf_fwd_q && mrq_req_o.ready)
 
 
   //
   // output
 
-  val llc_hit_resp_q = RegEnable(MemResp(P,
-                                         llc_req_i.bits.idx,
-                                         false.B,
-                                         llc_req_i.bits.rnw,
-                                         ptc_mux.data,
-                                         P.llcIdx),
-                                 llc_req_hit)
-
   ptw_resp_o.valid := ptc_hit && ptw_req_i.valid
   ptw_resp_o.bits  := ptc_mux
 
-  // TODO: timing. for now just pass through
-  llc_req_i.ready  := mrq_req_o.ready &&
-                     !ptw_req_i.valid &&
-                    !(llc_fsm_is_fwd  && !llc_resp_o.ready)
+  // b2b should be rare
+  llc_req_i.ready  := Non(buf_vld_q) && !ptw_req_i.valid
 
-  llc_resp_o.valid := Any(llc_fsm_q)
-  llc_resp_o.bits  := llc_fsm_is_mem ?? mrq_resp_i.bits :: llc_hit_resp_q
+  llc_resp_o.valid := llc_fsm_is_busy
+  llc_resp_o.bits  := llc_fsm_is_mem ?? mrq_resp_i.bits :: buf_resp
 
-  mrq_req_o.valid  := llc_req_mis
+  mrq_req_o.valid  := buf_vld_q && !buf_fwd_q
   mrq_req_o.bits   := MemReq(P,
-                             llc_req_i.bits.idx,
-                             llc_req_i.bits.rnw,
-                             llc_req_i.bits.mcn,
+                             buf_q.idx,
+                             buf_q.rnw,
+                             buf_q.mcn,
                              0.U,
-                             llc_req_i.bits.data,
+                             buf_q.data,
                              P.llcIdx)
 
   mrq_resp_i.ready := llc_fsm_is_mem && llc_resp_o.ready

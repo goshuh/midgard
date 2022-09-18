@@ -42,10 +42,10 @@ package frontside {
     val u_dlb = Module(new VLB(P, 2))
     val u_ptw = Module(new PTW(P, 2))
 
-    val ilb_ptw_req  = u_ilb.ptw_req_o.fire()
-    val ilb_ptw_resp = u_ilb.ptw_req_o.bits.kill(0) || u_ilb.ptw_resp_i.fire()
-    val dlb_ptw_req  = u_dlb.ptw_req_o.fire()
-    val dlb_ptw_resp = u_dlb.ptw_req_o.bits.kill(0) || u_dlb.ptw_resp_i.fire()
+    val ilb_ptw_req  = u_ilb.ptw_req_o.fire
+    val ilb_ptw_resp = u_ilb.ptw_req_o.bits.kill(0) || u_ilb.ptw_resp_i.fire
+    val dlb_ptw_req  = u_dlb.ptw_req_o.fire
+    val dlb_ptw_resp = u_dlb.ptw_req_o.bits.kill(0) || u_dlb.ptw_resp_i.fire
 
     val asid         = satp_i(60 :- P.asidBits)
 
@@ -73,7 +73,7 @@ package frontside {
 
     u_ptw.mem_req_o     <> mem_req_o
     u_ptw.mem_resp_i    <> mem_resp_i
-    u_ptw.satp_i        := Ext(satp_i(44.W), P.mpnBits) ## 0.U(6.W)
+    u_ptw.satp_i        := Ext(satp_i(44.W), P.mpnBits) ## 0.U(P.clWid.W)
 
     ilb_busy_o          := RegEnable(ilb_ptw_req && !ilb_ptw_resp, false.B, ilb_ptw_req || ilb_ptw_resp)
     dlb_busy_o          := RegEnable(dlb_ptw_req && !dlb_ptw_resp, false.B, dlb_ptw_req || dlb_ptw_resp)
@@ -107,6 +107,8 @@ object Main extends App {
     mrqWays   = 4,
 
     prbEn     = true,
+
+    deqWays   = 1,
 
     ctlBase   = 0x11000000,
     ctlSize   = 0x40,

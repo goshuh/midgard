@@ -98,7 +98,7 @@ object MemResp {
 
 class PTW(P: Param) extends Module {
 
-  // --------------------------
+  // ---------------------------
   // io
 
   val mlb_req_i  = IO(Flipped(Decoupled(new MLBReq(P))))
@@ -109,17 +109,16 @@ class PTW(P: Param) extends Module {
 
   val upd_req_o  = IO(            Valid(new PTCWrReq(P)))
 
-  val llc_req_o  = IO(        Decoupled(new LLCReq(P)))
+  val llc_req_o  = IO(        Decoupled(new LLCReq (P)))
   val llc_resp_i = IO(Flipped(Decoupled(new LLCResp(P))))
 
-  val mrq_req_o  = IO(        Decoupled(new MemReq(P)))
+  val mrq_req_o  = IO(        Decoupled(new MemReq (P)))
   val mrq_resp_i = IO(Flipped(Decoupled(new MemResp(P))))
 
   val ctl_i      = IO(            Input(Vec (P.ptwLvl + 1, UInt(P.maBits.W))))
-  val rst_i      = IO(            Input(Bool()))
 
 
-  // --------------------------
+  // ---------------------------
   // logic
 
   val
@@ -128,9 +127,9 @@ class PTW(P: Param) extends Module {
       fsm_resp ::
       fsm_null) = Enum(4)
 
-  val mlb_req  = mlb_req_i.fire()
-  val llc_resp = llc_resp_i.fire()
-  val mrq_resp = mrq_resp_i.fire()
+  val mlb_req  = mlb_req_i.fire
+  val llc_resp = llc_resp_i.fire
+  val mrq_resp = mrq_resp_i.fire
 
 
   //

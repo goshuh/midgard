@@ -37,7 +37,7 @@ object MemReq {
 
 class PTW(P: Param, N: Int) extends Module {
 
-  // --------------------------
+  // ---------------------------
   // io
 
   // slightly reusable in the future
@@ -65,17 +65,16 @@ class PTW(P: Param, N: Int) extends Module {
   //
   // arb
 
-  val arb_rdy = dontTouch(Wire(Bool()))
+  val arb_rdy     = dontTouch(Wire(Bool()))
 
-  val vlb_req_vld     = vlb_req_i.map(_.valid).U
-  val vlb_req_vld_any = Any(vlb_req_vld) && arb_rdy
+  val req_vld_raw = vlb_req_i.map(_.valid).U
+  val req_vld_any = Any(req_vld_raw) && arb_rdy
 
   // round-robin among vlb reqs
-  val arb_sel = RRA(vlb_req_vld, vlb_req_vld_any)
-  val arb_gnt = EnQ(arb_rdy, arb_sel)
+  val arb_sel     = RRA(req_vld_raw, req_vld_any)
 
-  val req_vld = vlb_req_vld_any
-  val req_pld = OrM(arb_gnt, vlb_req_i.map(_.bits))
+  val req_vld     = req_vld_any
+  val req_pld     = OrM(arb_sel, vlb_req_i.map(_.bits))
 
 
   //
@@ -161,7 +160,7 @@ class PTW(P: Param, N: Int) extends Module {
                          false.B,
                          req_vld || ptw_step)
 
-  ptw_src_q := RegEnable(arb_gnt,     req_vld)
+  ptw_src_q := RegEnable(arb_sel,     req_vld)
   ptw_vpn_q := RegEnable(req_pld.vpn, req_vld)
   ptw_mcn_q := RegEnable(req_vld   ?? satp_i      ::
                          ptw_tog_q ?? ptw_sel_mux ::
@@ -248,7 +247,7 @@ class PTW(P: Param, N: Int) extends Module {
   val vlb_resp = ptw_fail ?? VMA(P, ptw_mis_cfg) :: ptw_hit_mux
 
   for (i <- 0 until N) {
-    vlb_req_i (i).ready := arb_gnt(i)
+    vlb_req_i (i).ready := arb_rdy  && arb_sel(i)
 
     vlb_resp_o(i).valid := ptw_done && ptw_src_q(i)
     vlb_resp_o(i).bits  := vlb_resp

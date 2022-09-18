@@ -4,6 +4,8 @@ import  chisel3.util._
 
 
 case class Param(
+  en:       Boolean = true,
+
   vaBits:   Int     = 64,
   maBits:   Int     = 64,
   paBits:   Int     = 48,
@@ -31,13 +33,16 @@ case class Param(
 
   mrqWays:  Int,
 
+  deqWays:  Int,
+
   ctlBase:  BigInt,
   ctlSize:  BigInt,
   ctlInit:  BigInt  = 0,
 
   dbg:      Boolean = false) {
 
-  val clWid      =  log2Ceil(clBits / 8)
+  val clBytes    =  clBits / 8
+  val clWid      =  log2Ceil(clBytes)
 
   val vdnBits    =  vaBits - 3
   val mdnBits    =  maBits - 3
@@ -58,6 +63,8 @@ case class Param(
   val mlbTagBits =  mpnBits - mlbIdx
 
   val mrqIdx     =  log2Ceil(mrqWays)
+
+  val deqIdx     =  log2Ceil(deqWays)
 
   require(ptwLvl == ptcWays.size)
 }

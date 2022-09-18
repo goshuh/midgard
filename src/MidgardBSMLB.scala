@@ -80,7 +80,7 @@ object MLBEntry {
 
 class MLB(P: Param) extends Module {
 
-  // --------------------------
+  // ---------------------------
   // io
 
   val mrq_req_i  = IO(Flipped(Decoupled(new MLBReq  (P))))
@@ -93,7 +93,7 @@ class MLB(P: Param) extends Module {
   val rst_i      = IO(            Input(Bool()))
 
 
-  // --------------------------
+  // ---------------------------
   // logic
 
   val
@@ -104,7 +104,7 @@ class MLB(P: Param) extends Module {
 
   val mmu_on  = ctl_i(0)(0)
 
-  val mrq_req = mrq_req_i.fire()
+  val mrq_req = mrq_req_i.fire
 
 
   //
@@ -182,18 +182,18 @@ class MLB(P: Param) extends Module {
 
     // single port mem model
     for (i <- 0 until P.mlbWays) {
-      val mem = SyncReadMem(P.mlbSets, new MLBEntry(P))
-      val upd = wen && wsel(i)
+      val tag_data = SyncReadMem(P.mlbSets, UInt(mlb_data.getWidth.W))
+      val upd      = wen && wsel(i)
 
       s2_rdata(i) := DontCare
 
       when (upd || s1_ren_q) {
-        val port = mem(upd ?? waddr :: s1_raddr)
+        val port = tag_data(upd ?? waddr :: s1_raddr)
 
         when (upd) {
-          port        := wdata
+          port        := wdata.asUInt
         } .otherwise {
-          s2_rdata(i) := port
+          s2_rdata(i) := port.asTypeOf(new MLBEntry(P))
         }
       }
     }

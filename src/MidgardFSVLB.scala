@@ -166,7 +166,7 @@ class VLB(val P: Param, N: Int) extends Module {
   val Rst = 2
 
 
-  // --------------------------
+  // ---------------------------
   // io
 
   val vlb_req_i   = IO(Vec(N, Flipped(    Valid(new VLBReq (P)))))
@@ -186,7 +186,7 @@ class VLB(val P: Param, N: Int) extends Module {
   val kill_asid_i = IO(                   Input(UInt(P.asidBits.W)))
 
 
-  // --------------------------
+  // ---------------------------
   // logic
 
   val
@@ -225,7 +225,6 @@ class VLB(val P: Param, N: Int) extends Module {
   val s1_kill    = dontTouch(Wire(Bool()))
 
   val sp_fill_vld_qual = dontTouch(Wire(Bool()))
-  val sp_fill_rpl      = dontTouch(Wire(UInt(P.tlbWays.W)))
   val sp_fill_pld      = dontTouch(Wire(new TLBEntry(P)))
 
   if (P.tlbEn) {
@@ -254,8 +253,14 @@ class VLB(val P: Param, N: Int) extends Module {
       assert(sp_vld(i) -> OHp(hit_way ## sp_ptw_hit, true.B))
     }
 
+    val inv_way = tlb_q.map(e => !e.vld).U
+    val old_way = tlb_q.map(e =>  e.vld && (e.asid =/= asid_i)).U
+    val rpl_way = Any(inv_way) ?? PrL(inv_way) ::
+                  Any(old_way) ?? PrL(old_way) ::
+                                  PRA(P.tlbWays, sp_fill_vld_qual)
+
     for (i <- 0 until P.tlbWays) {
-      val set = sp_fill_vld_qual && sp_fill_rpl(i)
+      val set = sp_fill_vld_qual && rpl_way(i)
       val clr = tlb_q(i).clr(sx_kill, kill_i(Rst), kill_asid_i)
 
       tlb_q(i)     := RegEnable(sp_fill_pld,  set)
@@ -312,7 +317,7 @@ class VLB(val P: Param, N: Int) extends Module {
 
   val s2_fill_vld      = dontTouch(Wire(Bool()))
   val s2_fill_vld_qual = dontTouch(Wire(Bool()))
-  val s2_fill_rpl      = dontTouch(Wire(UInt(P.vlbWays.W)))
+  val s2_fill_rpl_way  = dontTouch(Wire(UInt(P.vlbWays.W)))
   val s2_fill_pld      = VLBEntry(P, ptw_resp_i.bits, asid_i)
 
   // hit the refilling one
@@ -326,7 +331,7 @@ class VLB(val P: Param, N: Int) extends Module {
   val vlb_q = dontTouch(Wire(Vec(P.vlbWays, new VLBEntry(P))))
 
   for (i <- 0 until P.vlbWays) {
-    val rpl = s2_fill_rpl(i)
+    val rpl = s2_fill_rpl_way(i)
     val set = s2_fill_vld_qual && rpl
 
     val hit = vlb_q(i).hit(s0_vpn,  asid_i)
@@ -340,8 +345,8 @@ class VLB(val P: Param, N: Int) extends Module {
     vlb_q(i).vld := RegEnable(set, false.B, set || clr)
   }
 
-  val s2_inv_way = ~vlb_q.map(e => e.vld).U
-  val s2_rpl_way =  vlb_q.map(e => e.vld && (e.asid =/= asid_i)).U
+  val s2_inv_way = vlb_q.map(e => !e.vld).U
+  val s2_old_way = vlb_q.map(e =>  e.vld && (e.asid =/= asid_i)).U
 
 
   //
@@ -386,7 +391,6 @@ class VLB(val P: Param, N: Int) extends Module {
   // refill tlb upon hitting vlb. the hit entry is always valid
   if (P.tlbEn) {
     sp_fill_vld_qual := s1_hit
-    sp_fill_rpl      := PRA(P.tlbWays, sp_fill_vld_qual)
     sp_fill_pld      := TLBEntry(P,
                                  s1_hit_mux.err,
                                  s1_vpn_q,
@@ -396,7 +400,6 @@ class VLB(val P: Param, N: Int) extends Module {
 
   } else {
     sp_fill_vld_qual := DontCare
-    sp_fill_rpl      := DontCare
     sp_fill_pld      := DontCare
   }
 
@@ -444,8 +447,8 @@ class VLB(val P: Param, N: Int) extends Module {
 
   s2_fill_vld      := ptw_resp_i.valid && s2_fsm_is_resp && !s2_kill
   s2_fill_vld_qual := s2_fill_vld && ptw_resp_i.bits.vld
-  s2_fill_rpl      := Any(s2_inv_way) ?? PrL(s2_inv_way) ::
-                      Any(s2_rpl_way) ?? PrL(s2_rpl_way) ::
+  s2_fill_rpl_way  := Any(s2_inv_way) ?? PrL(s2_inv_way) ::
+                      Any(s2_old_way) ?? PrL(s2_old_way) ::
                                          PRA(P.vlbWays, s2_fill_vld_qual)
 
   // kill upon waiting for either req or resp
