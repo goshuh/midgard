@@ -203,11 +203,10 @@ class VLB(val P: Param, N: Int) extends Module {
   //
   // stage pre
 
-  // killed request doesn't expect a response
-  val sp_vld     = vlb_req_i.map(e => e.valid && !e.bits.kill(0))
-  val sp_idx     = vlb_req_i.map(e => e.bits.idx)
-  val sp_vpn     = vlb_req_i.map(e => e.bits.vpn)
-  val sp_kill    = vlb_req_i.map(e => e.bits.kill)
+  val sp_vld     = vlb_req_i.map(_.valid)
+  val sp_idx     = vlb_req_i.map(_.bits.idx)
+  val sp_vpn     = vlb_req_i.map(_.bits.vpn)
+  val sp_kill    = vlb_req_i.map(_.bits.kill)
   val sp_hit     = dontTouch(Wire(Vec(N, Bool())))
   val sp_mis     = dontTouch(Wire(Vec(N, Bool())))
   val sp_err     = dontTouch(Wire(Vec(N, Bool())))
@@ -223,6 +222,7 @@ class VLB(val P: Param, N: Int) extends Module {
 
   val s0_kill    = dontTouch(Wire(Bool()))
   val s1_kill    = dontTouch(Wire(Bool()))
+  val s1_qual    = dontTouch(Wire(Bool()))
 
   val sp_fill_vld_qual = dontTouch(Wire(Bool()))
   val sp_fill_pld      = dontTouch(Wire(new TLBEntry(P)))
@@ -279,8 +279,9 @@ class VLB(val P: Param, N: Int) extends Module {
     s0_idx  := RegEnable(OrM(sp_sel, sp_idx), sp_req_any)
     s0_vpn  := RegEnable(OrM(sp_sel, sp_vpn), sp_req_any)
 
-    s0_kill := OrM(s0_sel_q, sp_kill.map(_(1)))
-    s1_kill := OrM(s1_sel_q, sp_kill.map(_(2)))
+    s0_kill := OrM(s0_sel_q, sp_kill.map(i => i(1) || RegNext(i(0))))
+    s1_kill := OrM(s1_sel_q, sp_kill.map(i => i(2)))
+    s1_qual := true.B
 
     for (i <- 0 until N) {
       s1_req_q(i) := DontCare
@@ -296,14 +297,18 @@ class VLB(val P: Param, N: Int) extends Module {
     }
 
     // round-robin
-    val sp_sel = RRA(sp_vld.U, Any(sp_vld.U))
+    val sp_vld_any = Any(sp_vld.U) && sx_qual
+    val sp_sel     = RRA(sp_vld.U, sp_vld_any)
 
-    s0_vld  := OrM(sp_sel, sp_vld) && sx_qual
+    s0_vld  := sp_vld_any
     s0_idx  := OrM(sp_sel, sp_idx)
     s0_vpn  := OrM(sp_sel, sp_vpn)
 
+    // for better timing and efficiency, upstream should drive these kills
+    // using super slow/late signals
     s0_kill := DontCare
-    s1_kill := OrM(s1_sel_q, sp_kill.map(_(1)))
+    s1_kill := OrM(s1_sel_q, sp_kill.map(i => i(1)))
+    s1_qual := OrM(s1_sel_q, sp_kill.map(i => Non(RegNext(i(0)))))
 
     for (i <- 0 until N) {
       s1_req_q(i) := RegNext(vlb_req_i(i))
@@ -368,7 +373,9 @@ class VLB(val P: Param, N: Int) extends Module {
 
   assert(s1_vld_q -> OHp(s1_hit_way, true.B))
 
-  val s1_vld     = s1_vld_q && !s1_kill  &&  sx_qual
+  // send resps back even for reqs that are being killed. upstream may use these
+  // resps to generate the kill...
+  val s1_vld     = s1_vld_q &&  s1_qual  &&  sx_qual
   val s1_hit     = s1_vld   && !s1_err_q &&  s1_hit_any
   val s1_mis     = s1_vld   && !s1_err_q && !s1_hit_any
   val s1_hit_mux = OrM(s1_hit_way, vlb_q)
@@ -386,11 +393,11 @@ class VLB(val P: Param, N: Int) extends Module {
                   (s1_vpn_q === s2_vpn_q))
 
   // really start ptw
-  val s1_mis_vld = s1_mis && s1_adv && !s1_ptw_hit
+  val s1_mis_vld = s1_mis && !s1_kill && s1_adv && !s1_ptw_hit
 
   // refill tlb upon hitting vlb. the hit entry is always valid
   if (P.tlbEn) {
-    sp_fill_vld_qual := s1_hit
+    sp_fill_vld_qual := s1_hit && !s1_kill
     sp_fill_pld      := TLBEntry(P,
                                  s1_hit_mux.err,
                                  s1_vpn_q,
