@@ -196,7 +196,7 @@ class DEQ(val P: Param) extends Module {
                               P.deqIdx)
 
   // os should guarantee that the region is properly aligned
-  val mrq_req_addr  = ctl_i(0) | (deq_mrq_mux.idx ## deq_mrq_mux.sel ## 0.U(P.clWid.W))
+  val mrq_req_pcn   = ctl_i(0)(P.paBits := P.clWid) | (deq_mrq_mux.idx ## deq_mrq_mux.sel)
   val mrq_req_data  = deq_mrq_mux.sel ?? (deq_mrq_mux.mask ## Ext(deq_mrq_mux.pcn, 64)) ::
                                           deq_mrq_mux.data
 
@@ -206,7 +206,7 @@ class DEQ(val P: Param) extends Module {
                                   Seq.tabulate(P.deqWays)(i => (i + N).U)),
                               false.B,
                               0.U,
-                              mrq_req_addr,
+                              mrq_req_pcn,
                               mrq_req_data,
                               P.llcIdx)
 
