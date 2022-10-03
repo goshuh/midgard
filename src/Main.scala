@@ -84,18 +84,22 @@ package frontside {
 object Main extends App {
 
   val p = Param(
+    en        = true,
+    fsSkip    = false,
+    bsSkip    = false,  
+
     vaBits    = 64,
     maBits    = 64,
     paBits    = 48,
     clBits    = 512,
-
-    llcIdx    = 3,
 
     tlbEn     = false,
     tlbWays   = 32,
 
     vlbIdx    = 6,
     vlbWays   = 16,
+
+    llcIdx    = 3,
 
     mlbEn     = true,
     mlbSets   = 1024,
@@ -105,8 +109,6 @@ object Main extends App {
     ptcWays   = Seq(1, 2, 4, 16, 16, 16),
 
     mrqWays   = 4,
-
-    prbEn     = true,
 
     deqWays   = 1,
 

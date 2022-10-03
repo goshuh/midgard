@@ -63,7 +63,7 @@ class MMU(val P: Param) extends Module {
   // only check when turning on mmu
   val mmu_on = ctl_i(0)(0)
 
-  when (P.dbg.B && mmu_on && !RegNext(mmu_on)) {
+  when (P.dbg.B && !P.bsSkip.B && mmu_on && !RegNext(mmu_on)) {
     val top = ctl_i(P.ptwLvl)(P.maBits :- 9)
 
     for (l <- 0 until P.ptwLvl) {
@@ -105,10 +105,10 @@ class MMU(val P: Param) extends Module {
   u_mrq.mlb_resp_i <> u_mlb.mrq_resp_o
   u_mrq.mem_req_o  <> mem_req_o
   u_mrq.mem_resp_i <> mem_resp_i
+  u_mrq.ctl_i      := ctl_i.slice(0, P.ptwLvl + 1)
 
   u_mlb.ptw_req_o  <> u_ptw.mlb_req_i
   u_mlb.ptw_resp_i <> u_ptw.mlb_resp_o
-  u_mlb.ctl_i      := ctl_i.slice(0, P.ptwLvl + 1)
   u_mlb.rst_i      := rst_i(0)
 
   u_ptw.llc_req_o  <> llc_req_o

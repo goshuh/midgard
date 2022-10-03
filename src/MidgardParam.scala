@@ -5,6 +5,8 @@ import  chisel3.util._
 
 case class Param(
   en:       Boolean = true,
+  fsSkip:   Boolean = false,
+  bsSkip:   Boolean = false,
 
   vaBits:   Int     = 64,
   maBits:   Int     = 64,
@@ -14,13 +16,13 @@ case class Param(
   attrBits: Int     = 4,
   asidBits: Int     = 16,
 
-  llcIdx:   Int,
-
   tlbEn:    Boolean,
   tlbWays:  Int,
 
   vlbIdx:   Int,
   vlbWays:  Int,
+
+  llcIdx:   Int,
 
   mlbEn:    Boolean,
   mlbSets:  Int,
@@ -28,8 +30,6 @@ case class Param(
 
   ptcEn:    Boolean,
   ptcWays:  Seq[Int],
-
-  prbEn:    Boolean,
 
   mrqWays:  Int,
 

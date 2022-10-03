@@ -39,6 +39,8 @@ class DEQ(val P: Param) extends Module {
   // ---------------------------
   // logic
 
+  val N = if (P.bsSkip) P.mrqWays / 2 - P.deqWays else 0
+
   val
      (fsm_idle ::
       fsm_req  ::
@@ -52,7 +54,7 @@ class DEQ(val P: Param) extends Module {
   val mrq_resp     = mrq_resp_i.fire
 
   val stb_req_sel  = Dec(stb_req_i.bits.idx)
-  val mrq_resp_sel = Dec(mrq_resp_i.bits.idx)
+  val mrq_resp_sel = Seq.tabulate(P.deqWays)(i => mrq_resp_i.bits.idx === (i + N).U)
 
 
   //
@@ -65,12 +67,29 @@ class DEQ(val P: Param) extends Module {
   val deq_mrq_sel = dontTouch(Wire(UInt(P.deqWays.W)))
   val deq_stb_sel = dontTouch(Wire(UInt(P.deqWays.W)))
 
-  val deq_head_q  = dontTouch(Wire(UInt(32.W)))
+  val deq_set     = dontTouch(Wire(Vec (P.deqWays, Bool())))
+  val deq_clr     = dontTouch(Wire(Vec (P.deqWays, Bool())))
+
+  val int_head_q  = dontTouch(Wire(UInt(32.W)))
+  val ext_head_q  = dontTouch(Wire(UInt(32.W)))
 
   // body
   val deq_q = dontTouch(Wire(Vec(P.deqWays, new DEQEntry(P))))
+  val age_q = dontTouch(Wire(Vec(P.deqWays, Vec(P.deqWays, Bool()))))
 
   for (i <- 0 until P.deqWays) {
+    // age matrix
+    for (j <- 0 until P.deqWays) {
+      if (i == j)
+        age_q(i)(j) := false.B
+      else if (i > j)
+        age_q(i)(j) := Non(age_q(j)(i))
+      else
+        age_q(i)(j) := RegEnable(deq_set(i),
+                                 false.B,
+                                 deq_set(i) || deq_set(j))
+    }
+
     val set = stb_req  && stb_req_sel(i)
     val clr = stb_resp && deq_stb_sel(i)
 
@@ -108,31 +127,43 @@ class DEQ(val P: Param) extends Module {
     assert(set -> !deq_fsm_is_busy)
 
     // make life easier
-    deq_q(i).fsm  := RegEnable(deq_fsm_nxt, fsm_idle, deq_fsm_en)
+    deq_q(i).fsm   := RegEnable(deq_fsm_nxt, fsm_idle, deq_fsm_en)
+
+    val deq_fst = !deq_q(i).sel
+    val deq_snd =  deq_q(i).sel
 
     // variable fields
-    val deq_tog      = clr &&  deq_fsm_is_resp
-    val deq_set_data = set && !deq_q(i).sel
-    val deq_set_misc = set &&  deq_q(i).sel
+    val deq_tog      = clr && deq_fsm_is_resp
+    val deq_set_data = set && deq_fst
+    val deq_set_misc = set && deq_snd
+    val deq_clr_all  = clr && deq_snd
 
-    deq_q(i).sel  := RegEnable(Non(deq_q(i).sel), false.B, deq_tog)
-    deq_q(i).idx  := RegEnable(deq_head_q,                 deq_set_data)
-    deq_q(i).data := RegEnable(stb_req_i.bits.data,        deq_set_data)
+    deq_q(i).sel   := RegEnable(deq_fst, false.B,    deq_tog)
+    deq_q(i).idx   := RegEnable(int_head_q,          deq_set_data)
+    deq_q(i).data  := RegEnable(stb_req_i.bits.data, deq_set_data)
 
-    deq_q(i).pcn  := RegEnable(stb_req_i.bits.data(P.paBits := P.clWid),   deq_set_misc)
-    deq_q(i).mask := RegEnable(stb_req_i.bits.data(64       :+ P.clBytes), deq_set_misc)
+    deq_q(i).pcn   := RegEnable(stb_req_i.bits.data(P.paBits := P.clWid),   deq_set_misc)
+    deq_q(i).mask  := RegEnable(stb_req_i.bits.data(64       :+ P.clBytes), deq_set_misc)
 
     // output
-    deq_vld    (i) := deq_fsm_is_busy
+    deq_vld    (i) := deq_fsm_is_busy ||  deq_snd
     deq_mrq_req(i) := deq_fsm_is_req
-    deq_stb_req(i) := deq_fsm_is_resp
+
+    // bring back global order again
+    deq_stb_req(i) := deq_fsm_is_resp && (deq_fst || Non(deq_vld.U & age_q(i).U))
+
+    deq_set    (i) := deq_set_data
+    deq_clr    (i) := deq_clr_all
   }
 
-  // global order
-  deq_head_q := RegEnable(NeQ(rst_i, (deq_head_q + 1.U) & ctl_i(1)(32.W)),
+  int_head_q := RegEnable(NeQ(rst_i, (int_head_q + 1.U) & ctl_i(1)(32.W)),
                           0.U,
-                          rst_i   ||
-                          stb_req && Any(stb_req_sel & ~deq_vld.U))
+                          rst_i || Any(deq_set))
+
+  // global order
+  ext_head_q := RegEnable(NeQ(rst_i, (ext_head_q + 1.U) & ctl_i(1)(32.W)),
+                          0.U,
+                          rst_i || Any(deq_clr))
 
   // arb
   val mrq_req_vld   = Any(deq_mrq_req)
@@ -165,13 +196,14 @@ class DEQ(val P: Param) extends Module {
                               P.deqIdx)
 
   // os should guarantee that the region is properly aligned
-  val mrq_req_addr = ctl_i(0) | (deq_mrq_mux.idx ## deq_mrq_mux.sel ## 0.U(P.clWid.W))
-  val mrq_req_data = deq_mrq_mux.sel ?? (deq_mrq_mux.mask ## Ext(deq_mrq_mux.pcn, 64)) ::
-                                         deq_mrq_mux.data
+  val mrq_req_addr  = ctl_i(0) | (deq_mrq_mux.idx ## deq_mrq_mux.sel ## 0.U(P.clWid.W))
+  val mrq_req_data  = deq_mrq_mux.sel ?? (deq_mrq_mux.mask ## Ext(deq_mrq_mux.pcn, 64)) ::
+                                          deq_mrq_mux.data
 
   mrq_req_o.valid  := mrq_req_vld
   mrq_req_o.bits   := MemReq (P,
-                              Enc(deq_stb_sel),
+                              OrM(deq_stb_sel,
+                                  Seq.tabulate(P.deqWays)(i => (i + N).U)),
                               false.B,
                               0.U,
                               mrq_req_addr,
@@ -181,5 +213,5 @@ class DEQ(val P: Param) extends Module {
   mrq_resp_i.ready := true.B
 
   deq_busy_o       := deq_vld.U
-  deq_head_o       := deq_head_q
+  deq_head_o       := ext_head_q
 }

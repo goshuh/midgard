@@ -3,6 +3,7 @@ package midgard
 import  scala.annotation.tailrec
 
 import  chisel3._
+import  chisel3.experimental._
 import  chisel3.util._
 import  chisel3.util.random._
 import  chisel3.internal.firrtl._
@@ -274,6 +275,13 @@ package object util {
     }
   }
 
+  implicit class withValid[T <: Data](d: ValidIO[T]) {
+    def tie: Unit = {
+      d.valid := false.B
+      d.bits  := DontCare
+    }
+  }
+
   implicit class withDecoupled[T <: Data](d: DecoupledIO[T]) {
     def <=(s: DecoupledIO[T]): Unit = {
       d.valid := RegEnable(s.valid || d.valid && !d.ready,
@@ -281,6 +289,16 @@ package object util {
                            s.valid || d.valid)
       d.bits  := RegEnable(s.bits,
                            s.valid)
+    }
+
+    def tie: Unit = {
+      DataMirror.directionOf(d) match {
+        case ActualDirection.Bidirectional(ActualDirection.Flipped) =>
+          d.ready := false.B
+        case _ =>
+          d.valid := false.B
+          d.bits  := DontCare
+      }
     }
   }
 }

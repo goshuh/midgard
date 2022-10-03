@@ -89,7 +89,6 @@ class MLB(P: Param) extends Module {
   val ptw_req_o  = IO(        Decoupled(new MLBReq  (P)))
   val ptw_resp_i = IO(Flipped(    Valid(new MLBEntry(P))))
 
-  val ctl_i      = IO(            Input(Vec (P.ptwLvl + 1, UInt(P.maBits.W))))
   val rst_i      = IO(            Input(Bool()))
 
 
@@ -102,9 +101,7 @@ class MLB(P: Param) extends Module {
       fsm_resp ::
       fsm_null) = Enum(3)
 
-  val mmu_on  = ctl_i(0)(0)
-
-  val mrq_req = mrq_req_i.fire
+  val mrq_req = mrq_req_i.fire && !P.bsSkip.B
 
 
   //
@@ -142,7 +139,7 @@ class MLB(P: Param) extends Module {
                        0.U,
                        rst_req || !rst_done)
 
-    val s0_ren     = mrq_req && mmu_on
+    val s0_ren     = mrq_req
     val s1_ren_q   = RegNext(s0_ren,   false.B)
     val s2_ren_q   = RegNext(s1_ren_q, false.B)
 
@@ -206,7 +203,7 @@ class MLB(P: Param) extends Module {
     mlb_data := MLBEntry(P)
 
     s2_hit   := false.B
-    s2_mis   := mrq_req && mmu_on
+    s2_mis   := mrq_req
     s2_mpn   := mrq_req_i.bits.mpn
   }
 
@@ -277,24 +274,25 @@ class MLB(P: Param) extends Module {
                              mlb_resp_ppn,
                              mlb_resp_mux.attr)
 
-  // mmu not enabled
-  val byp_resp_vld = RegNext(mrq_req && !mmu_on)
-  val byp_resp     = MLBResp(P,
-                             false.B,
-                             RegNext(mrq_req_i.bits.mpn),
-                             7.U)
-
 
   //
   // output
 
   mrq_req_i.ready  := mlb_idle && !rst_pend && !rst_i
 
-  mrq_resp_o.valid := mmu_on ?? mlb_resp_vld :: byp_resp_vld
-  mrq_resp_o.bits  := mmu_on ?? mlb_resp     :: byp_resp
+  mrq_resp_o.valid := mlb_resp_vld
+  mrq_resp_o.bits  := mlb_resp
 
   ptw_req_o.valid  := ptw_fsm_is_req
   ptw_req_o.bits   := MLBReq(P,
                              true.B,
                              s3_mpn_q)
+
+  // override
+  if (P.bsSkip) {
+    mrq_req_i .tie
+    mrq_resp_o.tie
+
+    ptw_req_o .tie
+  }
 }

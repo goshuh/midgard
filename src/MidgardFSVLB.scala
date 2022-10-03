@@ -203,7 +203,7 @@ class VLB(val P: Param, N: Int) extends Module {
   //
   // stage pre
 
-  val sp_vld     = vlb_req_i.map(_.valid)
+  val sp_vld     = vlb_req_i.map(_.valid && !P.fsSkip.B)
   val sp_idx     = vlb_req_i.map(_.bits.idx)
   val sp_vpn     = vlb_req_i.map(_.bits.vpn)
   val sp_kill    = vlb_req_i.map(_.bits.kill)
@@ -538,4 +538,35 @@ class VLB(val P: Param, N: Int) extends Module {
                               s2_idx_q,
                               s2_vpn_q,
                               0.U ## s2_stop)
+
+  // override
+  if (P.fsSkip) {
+    for (i <- 0 until N) {
+      val vld = vlb_req_i(i).valid
+      val req = vlb_req_i(i).bits
+
+      // workaround
+      if (P.tlbEn) {
+        vlb_resp_o(i).valid := vld
+        vlb_resp_o(i).bits  := VLBResp(P,
+                                       req.idx,
+                                       true.B,
+                                       false.B,
+                                       req.vpn,
+                                       0xee.U)
+      } else {
+        vlb_resp_o(i).valid := RegNext(vld && !req.kill(0))
+        vlb_resp_o(i).bits  := VLBResp(P,
+                                       RegEnable(req.idx, vld),
+                                       true.B,
+                                       false.B,
+                                       RegEnable(req.vpn, vld),
+                                       0xee.U)
+      }
+    }
+
+    vlb_fill_o.tie
+
+    ptw_req_o .tie
+  }
 }

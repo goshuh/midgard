@@ -76,6 +76,8 @@ class PTC(P: Param) extends Module {
       fsm_null) = Enum(4)
 
   val llc_req = llc_req_i.fire
+  val ptw_req = ptw_req_i.valid && !P.bsSkip.B
+
   val mrq_req = mrq_req_o.fire
 
 
@@ -83,8 +85,8 @@ class PTC(P: Param) extends Module {
   // arb
 
   // ptw always has higher priority
-  val req_vld = ptw_req_i.valid || llc_req_i.valid
-  val req_mcn = ptw_req_i.valid ?? ptw_req_i.bits.mcn :: llc_req_i.bits.mcn
+  val req_vld = ptw_req || llc_req_i.valid
+  val req_mcn = ptw_req ?? ptw_req_i.bits.mcn :: llc_req_i.bits.mcn
 
 
   //
@@ -223,11 +225,11 @@ class PTC(P: Param) extends Module {
   //
   // output
 
-  ptw_resp_o.valid := ptc_hit && ptw_req_i.valid
+  ptw_resp_o.valid := ptc_hit && ptw_req
   ptw_resp_o.bits  := ptc_mux
 
   // b2b should be rare
-  llc_req_i.ready  := Non(buf_vld_q) && !ptw_req_i.valid
+  llc_req_i.ready  := Non(buf_vld_q) && !ptw_req
 
   llc_resp_o.valid := llc_fsm_is_busy
   llc_resp_o.bits  := llc_fsm_is_mem ?? mrq_resp_i.bits :: buf_resp
@@ -237,9 +239,35 @@ class PTC(P: Param) extends Module {
                              buf_q.idx,
                              buf_q.rnw,
                              buf_q.mcn,
-                             0.U,
+                             buf_q.mcn,
                              buf_q.data,
                              P.llcIdx)
 
   mrq_resp_i.ready := llc_fsm_is_mem && llc_resp_o.ready
+
+  // override
+  if (P.bsSkip) {
+    llc_req_i.ready  := mrq_req_o.ready
+
+    llc_resp_o.valid := mrq_resp_i.valid
+    llc_resp_o.bits  := MemResp(P,
+                                mrq_resp_i.bits.idx,
+                                mrq_resp_i.bits.err,
+                                mrq_resp_i.bits.rnw,
+                                mrq_resp_i.bits.data,
+                                P.llcIdx)
+
+    mrq_req_o.valid  := llc_req_i.valid
+    mrq_req_o.bits   := MemReq (P,
+                                llc_req_i.bits.idx,
+                                llc_req_i.bits.rnw,
+                                llc_req_i.bits.mcn,
+                                llc_req_i.bits.mcn,
+                                llc_req_i.bits.data,
+                                P.mrqIdx)
+
+    mrq_resp_i.ready := llc_resp_o.ready
+
+    ptw_resp_o.tie
+  }
 }

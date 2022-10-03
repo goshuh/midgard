@@ -127,7 +127,8 @@ class PTW(P: Param) extends Module {
       fsm_resp ::
       fsm_null) = Enum(4)
 
-  val mlb_req  = mlb_req_i.fire
+  val mlb_req  = mlb_req_i.fire && !P.bsSkip.B
+
   val llc_resp = llc_resp_i.fire
   val mrq_resp = mrq_resp_i.fire
 
@@ -388,4 +389,19 @@ class PTW(P: Param) extends Module {
                              0.U,
                              P.llcIdx)
   mrq_resp_i.ready := true.B
+
+  // override
+  if (P.bsSkip) {
+    mlb_req_i .tie
+    mlb_resp_o.tie
+
+    ptc_req_o .tie
+    upd_req_o .tie
+
+    llc_req_o .tie
+    llc_resp_i.tie
+
+    mrq_req_o .tie
+    mrq_resp_i.tie
+  }
 }

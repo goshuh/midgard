@@ -67,7 +67,7 @@ class PTW(P: Param, N: Int) extends Module {
 
   val arb_rdy     = dontTouch(Wire(Bool()))
 
-  val req_vld_raw = vlb_req_i.map(_.valid).U
+  val req_vld_raw = vlb_req_i.map(_.valid && !P.fsSkip.B).U
   val req_vld_any = Any(req_vld_raw) && arb_rdy
 
   // round-robin among vlb reqs
@@ -260,4 +260,17 @@ class PTW(P: Param, N: Int) extends Module {
   mem_resp_i.ready := mem_fsm_is_dly
 
   idle_o           := mem_fsm_is_idle
+
+  // override
+  if (P.fsSkip) {
+    for (i <- 0 until N) {
+      vlb_req_i (i).tie
+      vlb_resp_o(i).tie
+    }
+
+    mem_req_o .tie
+    mem_resp_i.tie
+
+    idle_o := true.B
+  }
 }
