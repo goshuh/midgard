@@ -206,7 +206,7 @@ class DEQ(val P: Param) extends Module {
                                   Seq.tabulate(P.deqWays)(i => (i + N).U)),
                               false.B,
                               0.U,
-                              mrq_req_addr,
+                              mrq_req_addr(63,6), // pcn
                               mrq_req_data,
                               P.llcIdx)
 

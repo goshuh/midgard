@@ -193,7 +193,8 @@ class MRQ(val P: Param) extends Module {
     mrq_q(i).pcn  := RegEnable(mrq_set(i) ?? req_pld.pcn ::
                                             (mlb_resp_i.bits.ppn ## mrq_q(i).mcn(12 - P.clWid := 0)),
                                mrq_set(i) && ptw_req ||
-                               mlb_resp   && mrq_mlb_resp(i))
+                               mlb_resp   && mrq_mlb_resp(i) ||
+                               mrq_set(i) && deq_req)
 
     mrq_q(i).data := RegEnable(mrq_set(i) ?? req_pld.data :: mem_resp_pld.data,
                                mrq_set(i) && req_wnr ||
