@@ -67,4 +67,5 @@ case class Param(
   val deqIdx     =  log2Ceil(deqWays)
 
   require(ptwLvl == ptcWays.size)
+  require(mrqIdx >= deqIdx)
 }

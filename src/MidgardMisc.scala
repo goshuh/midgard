@@ -221,6 +221,21 @@ package object util {
     Cat(exp(Seq(b), n))
   }
 
+  def Src(i: Bool, o: Bool, s: Bool, n: Int = 2): Bool = {
+    require(n >= 2)
+
+    val src_q = Wire(UInt(n.W))
+    val ptr_q = Wire(UInt(log2Ceil(n).W))
+
+    src_q := RegEnable(src_q(n - 2, 0) ## s,              0.U, i)
+    ptr_q := RegEnable(ptr_q + (Rep(o, n - 1) ## true.B), 0.U, i ^ o)
+
+    assert((ptr_q === n.U) -> !i)
+    assert((ptr_q === 0.U) -> !o)
+
+    Any(src_q & Dec(ptr_q))
+  }
+
 
   case class pair[T1, +T2](a: T1, b: T2)
 

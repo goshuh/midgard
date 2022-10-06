@@ -39,8 +39,6 @@ class DEQ(val P: Param) extends Module {
   // ---------------------------
   // logic
 
-  val N = if (P.bsSkip) P.mrqWays / 2 - P.deqWays else 0
-
   val
      (fsm_idle ::
       fsm_req  ::
@@ -54,13 +52,14 @@ class DEQ(val P: Param) extends Module {
   val mrq_resp     = mrq_resp_i.fire
 
   val stb_req_sel  = Dec(stb_req_i.bits.idx)
-  val mrq_resp_sel = Seq.tabulate(P.deqWays)(i => mrq_resp_i.bits.idx === (i + N).U)
+  val mrq_resp_sel = Dec(mrq_resp_i.bits.idx)
 
 
   //
   // slots
 
   val deq_vld     = dontTouch(Wire(Vec (P.deqWays, Bool())))
+  val deq_busy    = dontTouch(Wire(Vec (P.deqWays, Bool())))
   val deq_mrq_req = dontTouch(Wire(Vec (P.deqWays, Bool())))
   val deq_stb_req = dontTouch(Wire(Vec (P.deqWays, Bool())))
 
@@ -147,6 +146,7 @@ class DEQ(val P: Param) extends Module {
 
     // output
     deq_vld    (i) := deq_fsm_is_busy ||  deq_snd
+    deq_busy   (i) := deq_fsm_is_busy
     deq_mrq_req(i) := deq_fsm_is_req
 
     // bring back global order again
@@ -197,13 +197,12 @@ class DEQ(val P: Param) extends Module {
 
   // os should guarantee that the region is properly aligned
   val mrq_req_pcn   = ctl_i(0)(P.paBits := P.clWid) | (deq_mrq_mux.idx ## deq_mrq_mux.sel)
-  val mrq_req_data  = deq_mrq_mux.sel ?? (deq_mrq_mux.mask ## Ext(deq_mrq_mux.pcn, 64)) ::
+  val mrq_req_data  = deq_mrq_mux.sel ?? (deq_mrq_mux.mask ## Ext(deq_mrq_mux.pcn ## 0.U(P.clWid.W), 64)) ::
                                           deq_mrq_mux.data
 
   mrq_req_o.valid  := mrq_req_vld
   mrq_req_o.bits   := MemReq (P,
-                              OrM(deq_stb_sel,
-                                  Seq.tabulate(P.deqWays)(i => (i + N).U)),
+                              Enc(deq_stb_sel),
                               false.B,
                               0.U,
                               mrq_req_pcn,
@@ -212,6 +211,6 @@ class DEQ(val P: Param) extends Module {
 
   mrq_resp_i.ready := true.B
 
-  deq_busy_o       := deq_vld.U
+  deq_busy_o       := deq_busy.U
   deq_head_o       := ext_head_q
 }
