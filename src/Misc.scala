@@ -224,16 +224,18 @@ package object util {
   def Src(i: Bool, o: Bool, s: Bool, n: Int = 2): Bool = {
     require(n >= 2)
 
+    val w = BigInt(n).bitLength
+
     val src_q = Wire(UInt(n.W))
-    val ptr_q = Wire(UInt(log2Ceil(n).W))
+    val ptr_q = Wire(UInt(w.W))
 
     src_q := RegEnable(src_q(n - 2, 0) ## s,              0.U, i)
-    ptr_q := RegEnable(ptr_q + (Rep(o, n - 1) ## true.B), 0.U, i ^ o)
+    ptr_q := RegEnable(ptr_q + (Rep(o, w - 1) ## true.B), 0.U, i ^ o)
 
     assert((ptr_q === n.U) -> !i)
     assert((ptr_q === 0.U) -> !o)
 
-    Any(src_q & Dec(ptr_q))
+    Any(src_q & Dec(ptr_q)(n, 1))
   }
 
 
