@@ -202,7 +202,7 @@ class DEQ(val P: Param) extends Module {
 
   mrq_req_o.valid  := mrq_req_vld
   mrq_req_o.bits   := MemReq (P,
-                              Enc(deq_stb_sel),
+                              Enc(deq_mrq_sel),
                               false.B,
                               0.U,
                               mrq_req_pcn,
