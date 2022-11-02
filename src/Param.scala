@@ -33,8 +33,6 @@ case class Param(
 
   mrqWays:  Int,
 
-  deqWays:  Int,
-
   ctlBase:  BigInt,
   ctlSize:  BigInt,
   ctlInit:  BigInt  = 0,
@@ -64,8 +62,5 @@ case class Param(
 
   val mrqIdx     =  log2Ceil(mrqWays)
 
-  val deqIdx     =  log2Ceil(deqWays)
-
   require(ptwLvl == ptcWays.size)
-  require(mrqIdx >= deqIdx)
 }

@@ -159,9 +159,11 @@ class PTC(P: Param) extends Module {
   val buf_q     = RegEnable(MemReq(P,
                                    llc_req_i.bits.idx,
                                    llc_req_i.bits.rnw,
+                                   llc_req_i.bits.siz,
                                    llc_req_i.bits.mcn,
                                    llc_req_i.bits.pcn,
-                                   llc_ptc_hit ?? ptc_mux.data :: llc_req_i.bits.data,
+                                   llc_ptc_hit ??  ptc_mux.data     :: llc_req_i.bits.data,
+                                   llc_ptc_hit ?? ~0.U(P.clBytes.W) :: llc_req_i.bits.mask,
                                    P.llcIdx),
                             buf_set)
 
@@ -170,6 +172,7 @@ class PTC(P: Param) extends Module {
                           buf_q.idx,
                           false.B,
                           buf_q.rnw,
+                          buf_q.siz,
                           buf_q.data,
                           P.llcIdx)
 
@@ -238,9 +241,11 @@ class PTC(P: Param) extends Module {
   mrq_req_o.bits   := MemReq(P,
                              buf_q.idx,
                              buf_q.rnw,
+                             buf_q.siz,
                              buf_q.mcn,
                              buf_q.mcn,
                              buf_q.data,
+                             buf_q.mask,
                              P.llcIdx)
 
   mrq_resp_i.ready := llc_fsm_is_mem && llc_resp_o.ready
@@ -254,6 +259,7 @@ class PTC(P: Param) extends Module {
                                 mrq_resp_i.bits.idx,
                                 mrq_resp_i.bits.err,
                                 mrq_resp_i.bits.rnw,
+                                mrq_resp_i.bits.siz,
                                 mrq_resp_i.bits.data,
                                 P.llcIdx)
 
@@ -261,9 +267,11 @@ class PTC(P: Param) extends Module {
     mrq_req_o.bits   := MemReq (P,
                                 llc_req_i.bits.idx,
                                 llc_req_i.bits.rnw,
+                                llc_req_i.bits.siz,
                                 llc_req_i.bits.mcn,
                                 llc_req_i.bits.mcn,
                                 llc_req_i.bits.data,
+                                llc_req_i.bits.mask,
                                 P.mrqIdx)
 
     mrq_resp_i.ready := llc_resp_o.ready

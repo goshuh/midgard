@@ -14,20 +14,14 @@ class MMU(val P: Param) extends Module {
   val llc_req_i  = IO(Flipped(Decoupled(new MemReq (P, P.llcIdx))))
   val llc_resp_o = IO(        Decoupled(new MemResp(P, P.llcIdx)))
 
-  val stb_req_i  = IO(Flipped(Decoupled(new MemReq (P, P.deqIdx))))
-  val stb_resp_o = IO(        Decoupled(new MemResp(P, P.deqIdx)))
-
   val llc_req_o  = IO(        Decoupled(new LLCReq (P)))
   val llc_resp_i = IO(Flipped(Decoupled(new LLCResp(P))))
 
   val mem_req_o  = IO(        Decoupled(new MemReq (P)))
   val mem_resp_i = IO(Flipped(Decoupled(new MemResp(P))))
 
-  val deq_busy_o = IO(           Output(UInt(P.deqWays.W)))
-  val deq_head_o = IO(           Output(UInt(32.W)))
-
-  val ctl_i      = IO(            Input(Vec (16, UInt(64.W))))
-  val rst_i      = IO(            Input(UInt(2.W)))
+  val ctl_i      = IO(            Input(Vec (8, UInt(64.W))))
+  val rst_i      = IO(            Input(Bool()))
 
 
   // ---------------------------
@@ -87,7 +81,6 @@ class MMU(val P: Param) extends Module {
   val u_mrq = Module(new MRQ(P))
   val u_mlb = Module(new MLB(P))
   val u_ptw = Module(new PTW(P))
-  val u_deq = Module(new DEQ(P))
 
   u_ptc.llc_req_i  <> llc_req_i
   u_ptc.llc_resp_o <> llc_resp_o
@@ -99,8 +92,6 @@ class MMU(val P: Param) extends Module {
 
   u_mrq.ptw_req_i  <> u_ptw.mrq_req_o
   u_mrq.ptw_resp_o <> u_ptw.mrq_resp_i
-  u_mrq.deq_req_i  <> u_deq.mrq_req_o
-  u_mrq.deq_resp_o <> u_deq.mrq_resp_i
   u_mrq.mlb_req_o  <> u_mlb.mrq_req_i
   u_mrq.mlb_resp_i <> u_mlb.mrq_resp_o
   u_mrq.mem_req_o  <> mem_req_o
@@ -109,17 +100,9 @@ class MMU(val P: Param) extends Module {
 
   u_mlb.ptw_req_o  <> u_ptw.mlb_req_i
   u_mlb.ptw_resp_i <> u_ptw.mlb_resp_o
-  u_mlb.rst_i      := rst_i(0)
+  u_mlb.rst_i      := rst_i
 
   u_ptw.llc_req_o  <> llc_req_o
   u_ptw.llc_resp_i <> llc_resp_i
   u_ptw.ctl_i      := ctl_i.slice(0, P.ptwLvl + 1)
-
-  u_deq.stb_req_i  <> stb_req_i
-  u_deq.stb_resp_o <> stb_resp_o
-  u_deq.ctl_i      := ctl_i.slice(8, 12)
-  u_deq.rst_i      := rst_i(1)
-
-  deq_busy_o       := u_deq.deq_busy_o
-  deq_head_o       := u_deq.deq_head_o
 }

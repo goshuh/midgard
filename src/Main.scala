@@ -110,8 +110,6 @@ object Main extends App {
 
     mrqWays   = 4,
 
-    deqWays   = 1,
-
     ctlBase   = 0x11000000,
     ctlSize   = 0x40,
 

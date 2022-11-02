@@ -19,9 +19,11 @@ class MemReq (val P: Param, val w: Int = 0) extends Bundle {
   val wid  = if (w <= 0) P.mrqIdx else w
   val idx  = UInt(wid.W)
   val rnw  = Bool()
+  val siz  = UInt(3.W)
   val mcn  = UInt(P.mcnBits.W)
   val pcn  = UInt(P.pcnBits.W)
   val data = UInt(P.clBits.W)
+  val mask = UInt(P.clBytes.W)
 }
 
 class MemResp(val P: Param, val w: Int = 0) extends Bundle {
@@ -29,6 +31,7 @@ class MemResp(val P: Param, val w: Int = 0) extends Bundle {
   val idx  = UInt(wid.W)
   val err  = Bool()
   val rnw  = Bool()
+  val siz  = UInt(3.W)
   val data = UInt(P.clBits.W)
 }
 
@@ -71,25 +74,28 @@ object LLCResp {
 }
 
 object MemReq {
-  def apply(P: Param, i: UInt, r: Bool, m: UInt, p: UInt, d: UInt, w: Int = 0): MemReq = {
+  def apply(P: Param, i: UInt, r: Bool, z: UInt, m: UInt, p: UInt, d: UInt, s: UInt, w: Int = 0): MemReq = {
     val ret = Wire(new MemReq(P, w))
 
     ret.idx  := i
     ret.rnw  := r
+    ret.siz  := z
     ret.mcn  := m
     ret.pcn  := p
     ret.data := d
+    ret.mask := s
     ret
   }
 }
 
 object MemResp {
-  def apply(P: Param, i: UInt, e: Bool, r: Bool, d: UInt, w: Int = 0): MemResp = {
+  def apply(P: Param, i: UInt, e: Bool, r: Bool, s: UInt, d: UInt, w: Int = 0): MemResp = {
     val ret = Wire(new MemResp(P, w))
 
     ret.idx  := i
     ret.err  := e
     ret.rnw  := r
+    ret.siz  := s
     ret.data := d
     ret
   }
@@ -384,8 +390,10 @@ class PTW(P: Param) extends Module {
   mrq_req_o.bits   := MemReq(P,
                              0.U,
                              true.B,
+                             P.clWid.U,
                              ptw_mdn_q(P.mdnBits := P.clWid - 3),
                              ptw_pdn_q(P.pdnBits := P.clWid - 3),
+                             0.U,
                              0.U,
                              P.llcIdx)
   mrq_resp_i.ready := true.B
