@@ -10,8 +10,9 @@ class tb_req extends tb_base;
     bit         m_vld;
     bit         m_pte;
     bit         m_err;
-    bit         m_rnw;
+    bit         m_wnr;
     llc_t       m_idx;
+    bit [  2:0] m_siz;
     mcn_t       m_mcn;
     pcn_t       m_pcn;
     bit [511:0] m_data;
@@ -50,7 +51,7 @@ class tb_req extends tb_base;
         bit [11:6] pof;
 
        `rands(pof);
-       `rands(m_rnw);
+       `rands(m_wnr);
        `rands(m_data);
 
         res = i ? m_gen.main() :
@@ -62,18 +63,18 @@ class tb_req extends tb_base;
 
         // don't try to overwrite the reserved pte region
         if (m_pte)
-            m_rnw = 1'b1;
+            m_wnr = 1'b0;
 
-       `dbg($sformatf("res: %x %x %x: %x %x %x %x",
-                       m_mcn[mcnBits-1:6], m_mcn, {m_mcn, 3'b0},
-                       m_pcn[pcnBits-1:6], m_pcn, {m_pcn, 3'b0},
+       `dbg($sformatf("res: %x/%x: %x",
+                       m_mcn,
+                       m_pcn,
                        m_err));
     endfunction
 
     virtual function void body();
         m_vld = 1'b1;
 
-        if (m_rnw) begin
+        if (m_wnr == 1'b0) begin
             pdn_t pdn = {m_pcn, 3'b0};
 
             // fortunately, we don't have any data cache
@@ -93,10 +94,10 @@ class tb_req extends tb_base;
     endfunction
 
     virtual function string show();
-        return $sformatf("req(vld: %x, err: %x, rnw: %x, idx: %x, mcn: %x %x, pcn: %x %x, data: %x)",
+        return $sformatf("req(vld: %x, err: %x, wnr: %x, idx: %x, mcn: %x %x, pcn: %x %x, data: %x)",
                           m_vld,
                           m_err,
-                          m_rnw,
+                          m_wnr,
                           m_idx,
                           m_mcn, m_mcn[mcnBits-1:6],
                           m_pcn, m_pcn[pcnBits-1:6],

@@ -3,7 +3,7 @@
 
 class tb_vlb extends tb_base;
 
-    tb_vif    m_vif;
+    va_vif    m_vif;
     tb_env    m_env;
 
     vlb_t     m_old     [$];
@@ -14,9 +14,9 @@ class tb_vlb extends tb_base;
 
     int       m_dis_get [2];
     int       m_dis_kil [2];
-    int       m_dis_ptw [2];
+    int       m_dis_ttw [2];
 
-    function new(ref tb_vif vif, input string mod, int b, int e);
+    function new(ref va_vif vif, input string mod, int b, int e);
         verif::plusargs arg = new({mod, "."});
 
         m_mod = mod;
@@ -28,7 +28,7 @@ class tb_vlb extends tb_base;
 
         m_dis_get = {arg.get_int("get_clr",   1), arg.get_int("get_set", 100)};
         m_dis_kil = {arg.get_int("kil_clr", 100), arg.get_int("kil_set",   1)};
-        m_dis_ptw = {arg.get_int("ptw_clr", 100), arg.get_int("ptw_set",   1)};
+        m_dis_ttw = {arg.get_int("ttw_clr", 100), arg.get_int("ttw_set",   1)};
 
         for (int i = b; i < e; i++)
             m_old.push_back(i);
@@ -83,52 +83,50 @@ class tb_vlb extends tb_base;
             bit       sel;
             bit [2:0] kil;
 
-            m_vif.vlb_kill_i              <= 3'b0;
+            m_vif.vlb_kill_i <= 3'b0;
 
-            if (m_vif.vlb_resp_o_valid && m_vif.vlb_resp_o_bits_vld) begin
-                idx = chk_new(m_vif.vlb_resp_o_bits_idx);
+            if (m_vif.vlb_res_o_valid && m_vif.vlb_res_o_bits_vld) begin
+                idx = chk_new(m_vif.vlb_res_o_bits_idx);
                 req = chk_req(idx);
 
                 cmp(req,
-                    m_vif.vlb_resp_o_bits_idx,
-                    m_vif.vlb_resp_o_bits_vld,
-                    m_vif.vlb_resp_o_bits_err,
-                    m_vif.vlb_resp_o_bits_mpn,
-                    m_vif.vlb_resp_o_bits_attr);
+                    m_vif.vlb_res_o_bits_idx,
+                    m_vif.vlb_res_o_bits_vld,
+                    m_vif.vlb_res_o_bits_err,
+                    m_vif.vlb_res_o_bits_mpn,
+                    m_vif.vlb_res_o_bits_attr);
 
                 ret.push_back(idx);
             end
 
-            if (m_vif.vlb_fill_o_valid && (m_vif.vlb_fill_o_bits_err ||
-                                          !m_vif.vlb_fill_o_bits_vld)) begin
-                idx = chk_new(m_vif.vlb_fill_o_bits_idx);
+            if (m_vif.vlb_ttw_o_valid && (m_vif.vlb_ttw_o_bits_err ||
+                                         !m_vif.vlb_ttw_o_bits_vld)) begin
+                idx = chk_new(m_vif.vlb_ttw_o_bits_idx);
                 req = chk_req(idx);
 
                 cmp(req,
-                    m_vif.vlb_fill_o_bits_idx,
-                    m_vif.vlb_fill_o_bits_vld,
-                    m_vif.vlb_fill_o_bits_err,
+                    m_vif.vlb_ttw_o_bits_idx,
+                    m_vif.vlb_ttw_o_bits_vld,
+                    m_vif.vlb_ttw_o_bits_err,
                     req.m_mpn,
-                    m_vif.vlb_fill_o_bits_attr);
+                    m_vif.vlb_ttw_o_bits_attr);
 
                 ret.push_back(idx);
             end
 
             if (m_vif.vlb_busy_o) begin
                `rands(sel, with { sel dist {
-                    1'b0 := m_dis_ptw[0],
-                    1'b1 := m_dis_ptw[1]
+                    1'b0 := m_dis_ttw[0],
+                    1'b1 := m_dis_ttw[1]
                 };});
 
-                idx = m_vif.vlb_fill_o_bits_idx;
+                idx = m_vif.vlb_ttw_o_bits_idx;
 
                 // disable flush in colliding cases
-                if (sel && !m_vif.vlb_kill_i[0]    &&
-                           !m_vif.vlb_fill_o_valid &&
-                          !(m_vif.vlb_req_i_valid  &&
-                           (m_vif.vlb_req_i_bits_idx  == idx)) &&
-                          !(m_vif.vlb_resp_o_valid &&
-                           (m_vif.vlb_resp_o_bits_idx == idx))) begin
+                if (sel && !m_vif.vlb_kill_i[0]   &&
+                           !m_vif.vlb_ttw_o_valid &&
+                          !(m_vif.vlb_req_i_valid && (m_vif.vlb_req_i_bits_idx == idx)) &&
+                          !(m_vif.vlb_res_o_valid && (m_vif.vlb_res_o_bits_idx == idx))) begin
                     idx = chk_new(idx);
                     req = chk_req(idx);
 
@@ -171,19 +169,19 @@ class tb_vlb extends tb_base;
                 // are tracked by their idx. once the first req hits vlb, the
                 // req is untracked anymore, but the second req has no chance
                 // to know this
-                // also avoid issuing the same req that is performing ptw
-                if (m_vif.vlb_req_i_valid && (m_vif.vlb_req_i_bits_idx  == idx) ||
-                    m_vif.vlb_busy_o      && (m_vif.vlb_fill_o_bits_idx == idx))
+                // also avoid issuing the same req that is performing ttw
+                if (m_vif.vlb_req_i_valid && (m_vif.vlb_req_i_bits_idx == idx) ||
+                    m_vif.vlb_busy_o      && (m_vif.vlb_ttw_o_bits_idx == idx))
                     req = null;
                 else
                     req = m_req[idx];
             end
 
-            // kill the issued req once it is already performing ptw
+            // kill the issued req once it is already performing ttw
             kil[1] = m_vif.vlb_req_i_valid      && m_vif.vlb_busy_o &&
-                    (m_vif.vlb_req_i_bits_idx   == m_vif.vlb_fill_o_bits_idx);
+                    (m_vif.vlb_req_i_bits_idx   == m_vif.vlb_ttw_o_bits_idx);
             kil[2] = m_vif.vlb_req_i_valid_q    && m_vif.vlb_busy_o &&
-                    (m_vif.vlb_req_i_bits_idx_q == m_vif.vlb_fill_o_bits_idx);
+                    (m_vif.vlb_req_i_bits_idx_q == m_vif.vlb_ttw_o_bits_idx);
 
            `rands(sel, with { sel dist {
                 1'b0 := m_dis_kil[0],
@@ -193,13 +191,13 @@ class tb_vlb extends tb_base;
             kil[0] = sel;
 
             if (req) begin
-                m_vif.vlb_req_i_valid     <= 1'b1;
-                m_vif.vlb_req_i_bits_idx  <= req.m_idx;
-                m_vif.vlb_req_i_bits_vpn  <= req.m_vpn;
+                m_vif.vlb_req_i_valid    <= 1'b1;
+                m_vif.vlb_req_i_bits_idx <= req.m_idx;
+                m_vif.vlb_req_i_bits_vpn <= req.m_vpn;
             end else
-                m_vif.vlb_req_i_valid     <= 1'b0;
+                m_vif.vlb_req_i_valid    <= 1'b0;
 
-            m_vif.vlb_req_i_bits_kill     <= kil;
+            m_vif.vlb_req_i_bits_kill    <= kil;
 
             foreach (ret[i]) begin
                 m_old.push_back(ret[i]);
@@ -221,7 +219,7 @@ class tb_vlb extends tb_base;
             if (!m_new.size() && (m_env.get() == stg) && !m_box.num()) begin
                 m_env.add(1);
 
-                m_vif.vlb_kill_i[1]       <= 1'b1;
+                m_vif.vlb_kill_i[1] <= 1'b1;
             end
 
            `waitn(1);

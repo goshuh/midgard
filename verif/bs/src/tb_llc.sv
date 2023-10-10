@@ -41,7 +41,7 @@ class tb_llc extends tb_base;
             m_req[i] = null;
     endfunction
 
-    function void cmp(ref tb_req req, input llc_t idx, bit rnw, bit err, bit [511:0] data);
+    function void cmp(ref tb_req req, input llc_t idx, bit wnr, bit err, bit [511:0] data);
         if (req == null)
             return;
 
@@ -49,12 +49,12 @@ class tb_llc extends tb_base;
            `err($sformatf("vld mismatch: %0x vs. %s", 1'b1, req.show()));
         if (idx  != req.m_idx)
            `err($sformatf("idx mismatch: %0x vs. %s", idx,  req.show()));
-        if (rnw  != req.m_rnw)
-           `err($sformatf("rnw mismatch: %0x vs. %s", rnw,  req.show()));
+        if (wnr  != req.m_wnr)
+           `err($sformatf("wnr mismatch: %0x vs. %s", wnr,  req.show()));
         if (err  != req.m_err)
            `err($sformatf("err mismatch: %0x vs. %s", err,  req.show()));
 
-        if (!err)
+        if (~err & ~wnr)
             if (data != req.m_data)
                `err($sformatf("dat mismatch: %0x vs. %s", data, req.show()));
     endfunction
@@ -100,6 +100,9 @@ class tb_llc extends tb_base;
             if (sel && !m_pte.try_get(req) || !sel)
                 if (!m_box.try_get(req)) begin
                     m_vif.llc_req_i_valid <= 1'b0;
+
+                    while (m_pte.try_get(req));
+
                    `waitn(1);
                     continue;
                 end
@@ -132,14 +135,15 @@ class tb_llc extends tb_base;
                 idx inside m_old;
             });
 
-            m_vif.llc_req_i_valid         <= 1'b1;
-            m_vif.llc_req_i_bits_idx      <= idx;
-            m_vif.llc_req_i_bits_rnw      <= req.m_rnw;
-            m_vif.llc_req_i_bits_mcn      <= req.m_mcn;
-            m_vif.llc_req_i_bits_pcn      <= req.m_pcn;
-            m_vif.llc_req_i_bits_data     <= req.m_data;
+            m_vif.llc_req_i_valid     <= 1'b1;
+            m_vif.llc_req_i_bits_idx  <= idx;
+            m_vif.llc_req_i_bits_wnr  <= req.m_wnr;
+            m_vif.llc_req_i_bits_siz  <= req.m_siz;
+            m_vif.llc_req_i_bits_mcn  <= req.m_mcn;
+            m_vif.llc_req_i_bits_pcn  <= req.m_pcn;
+            m_vif.llc_req_i_bits_data <= req.m_data;
            `waitt(m_vif.llc_req_i_ready, TO_MAX, "cha req timeout");
-            m_vif.llc_req_i_valid         <= 1'b0;
+            m_vif.llc_req_i_valid     <= 1'b0;
 
             req.body();
 
@@ -155,31 +159,31 @@ class tb_llc extends tb_base;
         end
     endtask
 
-    task chd_resp();
+    task chd_res();
         forever begin
             tb_req req;
             llc_t  idx;
             int    dly = `urand(m_dis_req[0], m_dis_req[1]);
 
-            m_vif.llc_resp_o_ready     <= dly == 0;
-           `waits(m_vif.llc_resp_o_valid);
+            m_vif.llc_res_o_ready     <= dly == 0;
+           `waits(m_vif.llc_res_o_valid);
 
             if (dly) begin
                `waitn(dly - 1);
-                m_vif.llc_resp_o_ready <= 1'b1;
+                m_vif.llc_res_o_ready <= 1'b1;
                `waitn(1);
             end
-            m_vif.llc_resp_o_ready     <= 1'b0;
+            m_vif.llc_res_o_ready     <= 1'b0;
 
             m_sem.get();
-            idx = chk_new(m_vif.llc_resp_o_bits_idx);
+            idx = chk_new(m_vif.llc_res_o_bits_idx);
             req = chk_req(idx);
 
             cmp(req,
                 idx,
-                m_vif.llc_resp_o_bits_rnw,
-                m_vif.llc_resp_o_bits_err,
-                m_vif.llc_resp_o_bits_data);
+                m_vif.llc_res_o_bits_wnr,
+                m_vif.llc_res_o_bits_err,
+                m_vif.llc_res_o_bits_data);
 
             if (req) begin
                 req.post();
@@ -222,15 +226,15 @@ class tb_llc extends tb_base;
             bit   sel;
             int   dly = `urand(m_dis_req[0], m_dis_req[1]);
 
-            m_vif.llc_req_o_ready      <= dly == 0;
+            m_vif.llc_req_o_ready     <= dly == 0;
            `waits(m_vif.llc_req_o_valid);
 
             if (dly) begin
                `waitn(dly - 1);
-                m_vif.llc_req_o_ready  <= 1'b1;
+                m_vif.llc_req_o_ready <= 1'b1;
                `waitn(1);
             end
-            m_vif.llc_req_o_ready      <= 1'b0;
+            m_vif.llc_req_o_ready     <= 1'b0;
 
             mcn =  m_vif.llc_req_o_bits_mcn;
             mdn = {mcn, 3'b0};
@@ -239,11 +243,11 @@ class tb_llc extends tb_base;
             dly = `urand(m_dis_acc[0], m_dis_acc[1]);
            `waitn(dly);
 
-            m_vif.llc_resp_i_valid     <= 1'b1;
-            m_vif.llc_resp_i_bits_hit  <= hit;
-            m_vif.llc_resp_i_bits_data <= m_llc.get_d(mdn);
-           `waitt(m_vif.llc_resp_i_ready, TO_MAX, "chc resp timeout");
-            m_vif.llc_resp_i_valid     <= 1'b0;
+            m_vif.llc_res_i_valid     <= 1'b1;
+            m_vif.llc_res_i_bits_hit  <= hit;
+            m_vif.llc_res_i_bits_data <= m_llc.get_d(mdn);
+           `waitt(m_vif.llc_res_i_ready, TO_MAX, "chc res timeout");
+            m_vif.llc_res_i_valid     <= 1'b0;
 
             // llc actively loads ptes back
            `rands(sel, with { sel dist {
@@ -266,10 +270,10 @@ class tb_llc extends tb_base;
 
     task main(input int stg, int max);
         fork
-            cha_req ();
-            chd_resp();
-            chk     (stg, max);
-            chc     ();
+            cha_req();
+            chd_res();
+            chk    (stg, max);
+            chc    ();
         join
     endtask
 

@@ -5,8 +5,6 @@ import  chisel3.util._
 
 case class Param(
   en:       Boolean = true,
-  fsSkip:   Boolean = false,
-  bsSkip:   Boolean = false,
 
   vaBits:   Int     = 64,
   maBits:   Int     = 64,
@@ -15,6 +13,9 @@ case class Param(
 
   attrBits: Int     = 4,
   asidBits: Int     = 16,
+  sdidBits: Int     = 16,
+
+  pmtBits:  Int,
 
   tlbEn:    Boolean,
   tlbWays:  Int,
@@ -22,14 +23,23 @@ case class Param(
   vlbIdx:   Int,
   vlbWays:  Int,
 
+  ttwNum:   Int,
+
+  vscEn:    Boolean,
+  vscSets:  Int,
+  vscWays:  Int,
+
+  vldSets:  Int,
+  vldWays:  Int,
+  dirBits:  Int,
+
   llcIdx:   Int,
 
   mlbEn:    Boolean,
-  mlbSets:  Int,
   mlbWays:  Int,
 
   ptcEn:    Boolean,
-  ptcWays:  Seq[Int],
+  ptcWays:  Int,
 
   mrqWays:  Int,
 
@@ -57,10 +67,14 @@ case class Param(
   val ptwLvl     = (mpnBits + (9      - 1)) / 9
   val ptwTop     =  mpnBits - (ptwLvl - 1)  * 9
 
-  val mlbIdx     =  log2Ceil(mlbSets)
-  val mlbTagBits =  mpnBits - mlbIdx
+  val vscBits    =  log2Ceil(vscSets)
+  val vscTagBits =  mdnBits - vscBits
 
+  val vldBits    =  log2Ceil(vldSets)
+  val vldTagBits =  mdnBits - vldBits
+
+  val ttwIdx     =  log2Ceil(ttwNum)
+  val mlbIdx     =  log2Ceil(mlbWays)
+  val ptcIdx     =  log2Ceil(ptcWays)
   val mrqIdx     =  log2Ceil(mrqWays)
-
-  require(ptwLvl == ptcWays.size)
 }

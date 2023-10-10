@@ -54,14 +54,15 @@ class tb_mem extends tb_base;
 
             req.m_vld  =  1'b1;
             req.m_dly  = `urand(m_dis_acc[0], m_dis_acc[1]);
-            req.m_rnw  =  m_vif.mem_req_o_bits_rnw;
+            req.m_wnr  =  m_vif.mem_req_o_bits_wnr;
+            req.m_siz  =  m_vif.mem_req_o_bits_siz;
             req.m_pcn  =  m_vif.mem_req_o_bits_pcn;
             req.m_data =  m_vif.mem_req_o_bits_data;
             m_sem.put();
         end
     endtask
 
-    task chd_resp();
+    task chd_res();
         int cnt = 0;
 
         forever begin
@@ -76,13 +77,13 @@ class tb_mem extends tb_base;
             end
             m_sem.put();
 
-            if (m_vif.mem_resp_i_valid)
-                if (m_vif.mem_resp_i_ready) begin
-                    m_vif.mem_resp_i_valid <= 1'b0;
+            if (m_vif.mem_res_i_valid)
+                if (m_vif.mem_res_i_ready) begin
+                    m_vif.mem_res_i_valid <= 1'b0;
                     cnt = 0;
                 end else begin
                     if (++cnt >= TO_MAX)
-                       `err("resp timeout");
+                       `err("res timeout");
 
                     continue;
                 end
@@ -94,19 +95,19 @@ class tb_mem extends tb_base;
                 if (req.m_vld && !req.m_dly) begin
                     pdn_t pdn = {req.m_pcn, 3'b0};
 
-                    if (req.m_rnw)
-                        req.m_data = m_mem.get_d(pdn);
-                    else
+                    if (req.m_wnr)
                         m_mem.set_d(pdn, req.m_data);
+                    else
+                        req.m_data = m_mem.get_d(pdn);
 
                     req.m_vld = 1'b0;
 
-                    m_vif.mem_resp_i_valid     <= 1'b1;
-                    m_vif.mem_resp_i_bits_err  <= m_err.get_b(req.m_pcn);
-                    m_vif.mem_resp_i_bits_idx  <= i[memIdx-1:0];
-                    m_vif.mem_resp_i_bits_rnw  <= req.m_rnw;
-                    m_vif.mem_resp_i_bits_data <= req.m_data;
-
+                    m_vif.mem_res_i_valid     <= 1'b1;
+                    m_vif.mem_res_i_bits_err  <= m_err.get_b(req.m_pcn);
+                    m_vif.mem_res_i_bits_idx  <= i[memIdx-1:0];
+                    m_vif.mem_res_i_bits_wnr  <= req.m_wnr;
+                    m_vif.mem_res_i_bits_siz  <= req.m_siz;
+                    m_vif.mem_res_i_bits_data <= req.m_data;
                     break;
                 end
             end
@@ -116,8 +117,8 @@ class tb_mem extends tb_base;
 
     task main();
         fork
-            cha_req ();
-            chd_resp();
+            cha_req();
+            chd_res();
         join
     endtask
 

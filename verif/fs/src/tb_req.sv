@@ -5,11 +5,12 @@ class tb_req extends tb_base;
 
    `register(tb_req);
 
-    tb_gen m_gen;
+    tb_vsc m_gen;
 
     tb_vma m_res;
     vpn_t  m_vpn;
     mpn_t  m_mpn;
+    mcn_t  m_mcn;
 
     vlb_t  m_idx;
     int    m_cnt;
@@ -17,7 +18,7 @@ class tb_req extends tb_base;
     function new();
         m_mod = "req";
 
-        m_gen =  tb_gen::get_inst();
+        m_gen =  tb_vsc::get_inst();
         m_cnt =  0;
     endfunction
 
@@ -25,11 +26,12 @@ class tb_req extends tb_base;
         m_res = i ? m_gen.main(m_vpn) :
                     m_gen.walk(m_vpn);
 
-        m_mpn = m_vpn[mpnBits-1:0] + m_res.offs[mpnBits-1:0];
+        m_mpn = m_vpn[mpnBits-1:0];
 
-       `dbg($sformatf("res: %x %x %x %x",
+       `dbg($sformatf("res: %x: %x-%x: %x %x %x",
                        m_vpn,
-                       m_mpn,
+                       m_res.base, m_res.bound,
+                       m_res.offs,
                        m_res.vld,
                        m_res.err));
     endfunction
@@ -41,8 +43,9 @@ class tb_req extends tb_base;
     endfunction
 
     virtual function string show();
-        return $sformatf("req(vpn: %x, mpn: %x, idx: %x, vld: %x, err: %x)",
+        return $sformatf("req(vpn: %x (%x-%x), mpn: %x, idx: %x, vld: %x, err: %x)",
                           m_vpn,
+                          m_res.base, m_res.bound,
                           m_mpn,
                           m_idx,
                           m_res.vld,

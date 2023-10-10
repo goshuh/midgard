@@ -1,19 +1,22 @@
-+define+DUMPFSDB
 +incdir+$VERIF/../lib
 +incdir+$VERIF/../src
++libext+.sv
+
+-y $VERIF/../../src
 
 $VERIF/../lib/verif.c
 $VERIF/../lib/verif.sv
 
-$VERIF/../../gen/FST.v
+$VERIF/../../gen/DUT.sv
 
 $VERIF/../src/tb.sv
 $VERIF/src/tb_misc.sv
 $VERIF/src/tb_intf.sv
-$VERIF/src/tb_tree.sv
-$VERIF/src/tb_gen.sv
+$VERIF/src/tb_bt4.sv
+$VERIF/src/tb_vsc.sv
 $VERIF/src/tb_req.sv
 $VERIF/src/tb_seq.sv
+$VERIF/src/tb_ctl.sv
 $VERIF/src/tb_vlb.sv
 $VERIF/src/tb_l1d.sv
 $VERIF/src/tb_env.sv

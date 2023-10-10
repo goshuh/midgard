@@ -22,16 +22,20 @@ package object util {
   def Non[T <: Data](d: T): Bool = {
     d.asUInt() === 0.U
   }
+  def Neg[T <: Data](d: T): UInt = {
+   ~d.asUInt()
+  }
 
   def ShL(d: UInt, n: Int): UInt = {
     val w = d.getWidth
+    val x = w - n
 
     if (n == 0)
       d
-    else if (n >= w)
+    else if (x <= 0)
       0.U(w.W)
     else
-      d(w - n - 1, 0) ## 0.U(n.W)
+      d(x.W) ## 0.U(n.W)
   }
   def ShR(d: UInt, n: Int): UInt = {
     val w = d.getWidth
@@ -41,17 +45,18 @@ package object util {
     else if (n >= w)
       0.U(w.W)
     else
-      0.U(n.W) ## d(w - 1, n)
+      0.U(n.W) ## d(w := n)
   }
   def SSL(d: UInt, n: Int): UInt = {
     val w = d.getWidth
+    val x = w - n
 
     if (n == 0)
       d
-    else if (n >= w)
+    else if (x <= 0)
      ~0.U(w.W)
     else
-      d(w - n - 1, 0) ## ~0.U(n.W)
+      d(x.W) ## ~0.U(n.W)
   }
   def SSR(d: UInt, n: Int): UInt = {
     val w = d.getWidth
@@ -61,17 +66,18 @@ package object util {
     else if (n >= w)
      ~0.U(w.W)
     else
-     ~0.U(n.W) ## d(w - 1, n)
+     ~0.U(n.W) ## d(w := n)
   }
 
   def RoL(d: UInt, n: Int): UInt = {
     val w = d.getWidth
     val m = n % w
+    val x = w - m
 
     if (m == 0)
       d
     else
-      d(w - m - 1, 0) ## d(w - 1, w - m)
+      d(x.W) ## d(w := x)
   }
   def RoR(d: UInt, n: Int): UInt = {
     val w = d.getWidth
@@ -80,7 +86,7 @@ package object util {
     if (m == 0)
       d
     else
-      d(m - 1, 0) ## d(w - 1, m)
+      d(m.W) ## d(w := m)
   }
 
   @tailrec
@@ -88,16 +94,19 @@ package object util {
     if (n >= s.getWidth)
       d
     else
-      shf(f, Mux(s(n),
-               f(d, 1 << n),
-                 d),
-          s, n + 1)
+      shf(f, s(n) ?? f(d, 1 << n) :: d, s, n + 1)
   }
   def BSL(d: UInt, s: UInt): UInt = {
     shf(ShL, d, s, 0)
   }
   def BSR(d: UInt, s: UInt): UInt = {
     shf(ShR, d, s, 0)
+  }
+  def BFL(d: UInt, s: UInt): UInt = {
+    shf(SSL, d, s, 0)
+  }
+  def BFR(d: UInt, s: UInt): UInt = {
+    shf(SSR, d, s, 0)
   }
   def BRL(d: UInt, s: UInt): UInt = {
     shf(RoL, d, s, 0)
@@ -118,7 +127,7 @@ package object util {
     val t =  Ext(d, s * n)
 
     Seq.tabulate(s) { i =>
-      t(i * n + n - 1, i * n)
+      t(i * n :+ n)
     }
   }
 
@@ -136,10 +145,10 @@ package object util {
   }
 
   def EnQ[T <: Data](e: Bool, d: T): T = {
-    Mux(e, d, 0.U.asTypeOf(d))
+    e ?? d :: 0.U.asTypeOf(d)
   }
   def NeQ[T <: Data](e: Bool, d: T): T = {
-    Mux(e, 0.U.asTypeOf(d), d)
+    e ?? 0.U.asTypeOf(d) :: d
   }
 
   @tailrec
@@ -184,13 +193,13 @@ package object util {
     val w = d.getWidth
 
     if (w > 1) {
-      val arb_q = dontTouch(Wire(UInt(w.W)))
+      val arb_q = Pin(UInt(w.W))
       val fwd   = d &  arb_q
       val bwd   = d & ~arb_q
-      val sel   = PrR(Mux(Any(fwd), fwd, bwd))
+      val sel   = PrR(Any(fwd) ?? fwd :: bwd)
 
       arb_q := RegEnable(OrL(RoL(sel, 1)),
-                        ~0.U,
+                        ~0.U(w.W),
                          e)
       sel
 
@@ -199,16 +208,20 @@ package object util {
   }
 
   def PRA(w: Int,  e: Bool): UInt = {
-    Dec(LFSR(log2Ceil(w).max(2), e))(w - 1, 0)
+    Dec(LFSR(log2Ceil(w).max(2), e))(w.W)
   }
 
   def OHp(d: UInt, z: Bool): Bool = {
     Non(d & ShL(OrL(d), 1)) && (z || Any(d))
   }
 
-  def Dec = UIntToOH
+  def Dec(d: UInt): UInt = {
+    BSL(1.U(scala.math.pow(2, d.getWidth).intValue.W), d)
+  }
+
   def Enc = OHToUInt
   def OrM = Mux1H
+  def Pop = PopCount
 
   private def exp(v: Seq[Bool], n: Int): Seq[Bool] = {
     if (n == 0)
@@ -226,22 +239,37 @@ package object util {
 
     val w = BigInt(n).bitLength
 
-    val src_q = Wire(UInt(n.W))
-    val ptr_q = Wire(UInt(w.W))
+    val src_q = Pin(UInt(n.W))
+    val ptr_q = Pin(UInt(w.W))
 
     src_q := RegEnable(src_q(n - 2, 0) ## s,              0.U, i)
     ptr_q := RegEnable(ptr_q + (Rep(o, w - 1) ## true.B), 0.U, i ^ o)
 
-    assert((ptr_q === n.U) -> !i)
-    assert((ptr_q === 0.U) -> !o)
+    Chk((ptr_q === n.U) -> !i)
+    Chk((ptr_q === 0.U) -> !o)
 
     Any(src_q & Dec(ptr_q)(n, 1))
+  }
+
+  def Opt(n: Int): Option[UInt] = {
+    require(n >= 0)
+
+    if (n > 0)
+      Some(UInt(n.W))
+    else
+      None
+  }
+  def Pin[T <: Data](d: T): T = {
+    dontTouch(Wire(d))
+  }
+  def Chk(c: Bool): Unit = {
+    assert(c)
   }
 
 
   case class pair[T1, +T2](a: T1, b: T2)
 
-  implicit class withIInt(d: Int) {
+  implicit class withWInt(d: Int) {
     def :+(a: Int): pair[Int, Int] = {
       pair(d + a, d)
     }
@@ -267,7 +295,7 @@ package object util {
       pair(d, t)
     }
     def ->(c: Bool): Bool = {
-      !(d && !c)
+      !d || c
     }
   }
 
@@ -317,5 +345,38 @@ package object util {
           d.bits  := DontCare
       }
     }
+  }
+
+  class SPRAM(a: Int, d: Int, s: Int) extends ExtModule(Map("A" -> a,
+                                                            "D" -> d,
+                                                            "S" -> s)) {
+    override def desiredName = s"SPRAM___${a}_${d}_${s}"
+
+    val clk   = IO(Input (Clock()))
+
+    val en    = IO(Input (Bool()))
+    val wnr   = IO(Input (Bool()))
+    val addr  = IO(Input (UInt(a.W)))
+
+    val rdata = IO(Output(UInt(d.W)))
+    val wdata = IO(Input (UInt(d.W)))
+    val wstrb = IO(Input (UInt(s.W)))
+  }
+
+  class DPRAM(a: Int, d: Int, s: Int) extends ExtModule(Map("A" -> a,
+                                                            "D" -> d,
+                                                            "S" -> s)) {
+    override def desiredName = s"DPRAM___${a}_${d}_${s}"
+
+    val clk   = IO(Input (Clock()))
+
+    val ren   = IO(Input (Bool()))
+    val raddr = IO(Input (UInt(a.W)))
+    val rdata = IO(Output(UInt(d.W)))
+
+    val wen   = IO(Input (Bool()))
+    val waddr = IO(Input (UInt(a.W)))
+    val wdata = IO(Input (UInt(d.W)))
+    val wstrb = IO(Input (UInt(s.W)))
   }
 }

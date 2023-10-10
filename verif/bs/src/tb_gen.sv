@@ -5,20 +5,20 @@ class tb_gen extends tb_base;
 
    `register(tb_gen);
 
-    ma_mem        m_llc;
-    pa_mem        m_mem;
-    pe_mem        m_err;
+    ma_mem     m_llc;
+    pa_mem     m_mem;
+    pe_mem     m_err;
 
-    bit [63:0]    m_ctl     [ptwLvl:0];
-    bit [ 8:0]    m_idx     [ptwLvl:1][$];
-    int           m_ppn     [ppn_t];
-    int           m_shf     [ptwLvl:1];
-    mdn_t         m_mdm     [ptwLvl:1];
-    pdn_t         m_pdm     [ptwLvl:1];
+    bit [63:0] m_ctl     [ptwLvl:0];
+    bit [ 8:0] m_idx     [ptwLvl:1][$];
+    int        m_ppn     [ppn_t];
+    int        m_shf     [ptwLvl:1];
+    mdn_t      m_mdm     [ptwLvl:1];
+    pdn_t      m_pdm     [ptwLvl:1];
 
-    int           m_dis_old [ptwLvl:1][];
-    int           m_dis_err [ptwLvl:1][];
-    int           m_dis_blk [ptwLvl:1][];
+    int        m_dis_old [ptwLvl:1][];
+    int        m_dis_err [ptwLvl:1][];
+    int        m_dis_blk [ptwLvl:1][];
 
     static tb_gen m_inst;
 
@@ -198,36 +198,58 @@ class tb_gen extends tb_base;
             blk[0] = blk[0] & (i <  ptwLvl) |
                     ~blk[1] & (i == ptwLvl);
 
-            if (m_mem.chk(pdn)) begin
-                pte =  m_mem.get_b(pdn);
-                ppn =  pte[paBits-3:10];
+            if (m_err.chk(pdn[pdnBits-1:3])) begin
+                // the page is already marked as invalid
 
-                // coarse-grain. depending on the width of the mem bus
-                err[0] =  m_err.get_b(pdn[pdnBits-1:3]);
-                err[1] = ~pte[ 0];
-                blk[0] =  pte[ 1];
+                if (m_mem.chk(pdn)) begin
+                    pte  = m_mem.get_b(pdn);
+                    ppn  = pte[paBits-3:10];
+
+                    err[0] =  1'b1;
+                    err[1] = ~pte[0];
+                    blk[0] =  pte[1];
+
+                end else begin
+                    // just fill an invalid pte
+                    ppn = {ppnBits{1'b0}};
+                    pte = {1'b1,  63'b0};
+
+                    m_mem.set_b(pdn, pte);
+                end
+
             end else begin
-                // allocate a free new (huge) page
-                ppn =  gen_ppn(blk[0], i);
+                if (m_mem.chk(pdn)) begin
+                    pte =  m_mem.get_b(pdn);
+                    ppn =  pte[paBits-3:10];
 
-                pte = {err[0],  // err
-                      {54-ppnBits{1'b0}},
-                       ppn,     // ppn
-                       6'b0,    // TODO
-                       blk[0],  // x
-                       blk[0],  // w
-                       blk[0],  // r
-                      ~err[1]}; // vld
+                    // coarse-grain. depending on the width of the mem bus
+                    err[0] =  m_err.get_b(pdn[pdnBits-1:3]);
+                    err[1] = ~pte[ 0];
+                    blk[0] =  pte[ 1];
 
-                m_mem.set_b(pdn, pte);
+                end else begin
+                    // allocate a free new (huge) page
+                    ppn =  gen_ppn(blk[0], i);
 
-                if (err[0])
-                    m_err.set_b(pdn[pdnBits-1:3], 1'b1);
+                    pte = {err[0],  // err
+                          {54-ppnBits{1'b0}},
+                           ppn,     // ppn
+                           6'b0,    // TODO
+                           blk[0],  // x
+                           blk[0],  // w
+                           blk[0],  // r
+                          ~err[1]}; // vld
+
+                    m_mem.set_b(pdn, pte);
+
+                    if (err[0])
+                        m_err.set_b(pdn[pdnBits-1:3], 1'b1);
+                end
             end
 
-           `dbg($sformatf("ptw: %x %x %x: %x %x %x %x %x",
-                           mdn[mdnBits-1:9], mdn[mdnBits-1:3], mdn,
-                           pdn[pdnBits-1:9], pdn[pdnBits-1:3], pdn,
+           `dbg($sformatf("  %x/%x: %x %x",
+                           mdn[mdnBits-1:3],
+                           pdn[pdnBits-1:3],
                            pte,
                            err));
 

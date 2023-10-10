@@ -9,14 +9,14 @@ class tb_seq extends tb_base;
    `register(tb_seq);
 
     tb_env  m_env;
-    tb_gen  m_gen;
+    tb_vsc  m_gen;
 
     mailbox m_box;
 
     function new();
         m_mod = "seq";
 
-        m_gen =  tb_gen::get_inst();
+        m_gen =  tb_vsc::get_inst();
 
        `get(tb_env,  "env", m_env);
        `get(mailbox, "box", m_box);
@@ -26,7 +26,7 @@ class tb_seq extends tb_base;
         m_box.put(req);
     endtask
 
-    virtual task main(input int stg, int max);
+    virtual task main(input int stg);
         verif::plusargs arg = new("seq.");
 
         string str = arg.get_str("req", "tb_req");
@@ -38,7 +38,6 @@ class tb_seq extends tb_base;
             m_env.blk(stg);
 
             // create vma table now. simply too hard to rearrange it on-the-fly
-            m_gen.init();
             m_gen.gen_all(num);
 
             tbr.delete();
@@ -59,9 +58,6 @@ class tb_seq extends tb_base;
                 put(tbr[i]);
 
             m_env.add(1);
-
-            m_env.blk(1 + stg + max);
-            m_env.set(0);
         end
     endtask
 

@@ -21,21 +21,15 @@ class tb_ctl extends tb_base;
 
             m_gen.init();
 
-            for (int i = 0; i <= ptwLvl; i++) begin
-                m_vif.ctl_req_i_valid     <= 1'b1;
-                m_vif.ctl_req_i_bits_rnw  <= 1'b0;
-                m_vif.ctl_req_i_bits_addr <= i[3:0];
-                m_vif.ctl_req_i_bits_data <= m_gen.m_ctl[i];
-               `waitt(m_vif.ctl_req_i_ready,  TO_MAX, "req timeout");
-                m_vif.ctl_req_i_valid     <= 1'b0;
+            for (int i = 0;          i <= ptwLvl; i++)
+                m_vif.ctl_i[i] <= m_gen.m_ctl[i];
+            for (int i = ptwLvl + 1; i <= 7;      i++)
+                m_vif.ctl_i[i] <= 64'b0;
 
-                m_vif.ctl_resp_o_ready    <= 1'b1;
-               `waitt(m_vif.ctl_resp_o_valid, TO_MAX, "resp timeout");
-                m_vif.ctl_resp_o_ready    <= 1'b0;
-
-                if (~m_vif.ctl_resp_o_bits_sel)
-                   `err($sformatf("failed: %0d", i));
-            end
+           `waitn(1);
+            m_vif.rst_i        <= 1'b1;
+           `waitn(1);
+            m_vif.rst_i        <= 1'b0;
 
             m_env.add(1);
 

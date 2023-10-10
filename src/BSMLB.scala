@@ -6,45 +6,76 @@ import  midgard._
 import  midgard.util._
 
 
-class MLBReq  (val P: Param) extends Bundle {
-  val rnw  = Bool()
+class MLBReq(val P: Param) extends Bundle {
+  val idx  = UInt(P.mrqIdx.W)
+  val wnr  = Bool()
   val mpn  = UInt(P.mpnBits.W)
 }
 
-class MLBResp (val P: Param) extends Bundle {
+class MLBRes(val P: Param) extends Bundle {
+  val rdy  = Bool()
+  val idx  = UInt(P.mrqIdx.W)
   val err  = Bool()
   val ppn  = UInt(P.ppnBits.W)
-  val attr = UInt(3.W)
+  val attr = UInt(4.W)
 }
 
 class MLBEntry(val P: Param) extends Bundle {
   val vld  = Bool()
   val err  = Bool()
   val lvl  = UInt(3.W)
-  val mpn  = UInt(P.mlbTagBits.W)
+  val mpn  = UInt(P.mpnBits.W)
   val ppn  = UInt(P.ppnBits.W)
   val attr = UInt(3.W)
 
   def hit(m: UInt): Bool = {
-    vld && (m === mpn)
+    val arr = Pin(Vec(P.ptwLvl, Bool()))
+
+    for (i <- 0 until P.ptwLvl) {
+      val b = P.mpnBits - P.ptwTop - i * 9
+      val w = if (i == 0) P.ptwTop else  9
+
+      arr(i) := mpn(b :+ w) === m(b :+ w)
+    }
+
+    Any(Dec(lvl)(P.ptwLvl.W) & Rev(ArR(Rev(arr.U))))
+  }
+  def hpn(m: UInt): UInt = {
+    val arr = Pin(Vec(P.ptwLvl, UInt(P.ppnBits.W)))
+
+    for (i <- 0 until P.ptwLvl) {
+      val b = P.mpnBits - P.ptwTop - i * 9
+
+      if (b >= P.ppnBits)
+        arr(i) := m  (P.ppnBits.W)
+      else if (b > 0)
+        arr(i) := ppn(P.ppnBits := b) ## m(b.W)
+      else
+        arr(i) := ppn
+    }
+
+    OrM(Dec(lvl)(P.ptwLvl.W), arr)
   }
 }
 
 
 object MLBReq {
-  def apply(P: Param, r: Bool, m: UInt): MLBReq = {
-    val ret = Wire(new MLBReq(P))
+  def apply(P: Param, i: UInt, w: Bool, m: UInt): MLBReq = {
+    val ret = Pin(new MLBReq(P))
 
-    ret.rnw  := r
+    ret.idx  := i
+    ret.wnr  := w
     ret.mpn  := m
     ret
   }
 }
 
-object MLBResp {
-  def apply(P: Param, e: Bool, p: UInt, a: UInt): MLBResp = {
-    val ret = Wire(new MLBResp(P))
+object MLBRes {
+  def apply(P: Param, r: Bool, i: UInt, e: Bool, p: UInt, a: UInt): MLBRes = {
+    val ret = Pin(new MLBRes(P))
 
+    ret.rdy  := r
+    ret.idx  := i
     ret.err  := e
     ret.ppn  := p
     ret.attr := a
@@ -54,10 +85,10 @@ object MLBResp {
 
 object MLBEntry {
   def apply(P: Param): MLBEntry = {
-    val ret = Wire(new MLBEntry(P))
+    val ret = Pin(new MLBEntry(P))
 
     ret.vld  := false.B
-    ret.err  := DontCare
+    ret.err  := false.B
     ret.lvl  := DontCare
     ret.mpn  := DontCare
     ret.ppn  := DontCare
@@ -65,7 +96,7 @@ object MLBEntry {
     ret
   }
   def apply(P: Param, e: Bool, l: UInt, m: UInt, p: UInt, a: UInt): MLBEntry = {
-    val ret = Wire(new MLBEntry(P))
+    val ret = Pin(new MLBEntry(P))
 
     ret.vld  := true.B
     ret.err  := e
@@ -78,221 +109,154 @@ object MLBEntry {
 }
 
 
-class MLB(P: Param) extends Module {
+class MLB(val P: Param) extends Module {
 
   // ---------------------------
   // io
 
-  val mrq_req_i  = IO(Flipped(Decoupled(new MLBReq  (P))))
-  val mrq_resp_o = IO(            Valid(new MLBResp (P)))
+  val mrq_req_i = IO(Flipped(Valid(new MLBReq(P))))
+  val mrq_res_o = IO(        Valid(new MLBRes(P)))
+  val ptw_res_o = IO(        Valid(new MLBRes(P)))
 
-  val ptw_req_o  = IO(        Decoupled(new MLBReq  (P)))
-  val ptw_resp_i = IO(Flipped(    Valid(new MLBEntry(P))))
+  val ptw_req_o = IO(        Valid(new MLBReq(P)))
+  val ptw_res_i = IO(Flipped(Valid(new MLBEntry(P))))
 
-  val rst_i      = IO(            Input(Bool()))
+  val rst_i     = IO(        Input(Bool()))
 
 
   // ---------------------------
   // logic
 
-  val
-     (fsm_idle ::
-      fsm_req  ::
-      fsm_resp ::
-      fsm_null) = Enum(3)
-
-  val mrq_req = mrq_req_i.fire && !P.bsSkip.B
-
-
   //
-  // common
+  // stage 0/1
 
-  val rst_done = dontTouch(Wire(Bool()))
-  val rst_pend = dontTouch(Wire(Bool()))
+  val sx_qual        = Non(rst_i)
 
-  val mlb_idle = dontTouch(Wire(Bool()))
-  val mlb_busy = dontTouch(Wire(Bool()))
-  val mlb_data = dontTouch(Wire(new MLBEntry(P)))
+  val s0_req         = mrq_req_i.valid
+  val s0_req_pld     = mrq_req_i.bits
 
-  val s2_hit   = dontTouch(Wire(Bool()))
-  val s2_mis   = dontTouch(Wire(Bool()))
-  val s2_mpn   = dontTouch(Wire(UInt(P.mpnBits.W)))
-  val s3_mpn_q = RegEnable(s2_mpn, s2_mis)
+  val s1_req_q       = RegNext  (s0_req,     false.B)
+  val s1_req_pld_q   = RegEnable(s0_req_pld, s0_req)
 
+  val s1_hit         = Pin(Bool())
+  val s1_mis         = Pin(Bool())
+  val s1_res         = Pin(new MLBRes(P))
 
-  //
-  // mlb
+  val s2_ptw_rdy     = Pin(Bool())
+  val s2_ptw_res_raw = Pin(Bool())
+  val s2_ptw_res     = Pin(Bool())
+  val s2_ptw_res_pld = Pin(new MLBEntry(P))
+
+  val s0_ptw_hit     = s2_ptw_res && sx_qual && s2_ptw_res_pld.hit(s0_req_pld  .mpn)
+  val s1_ptw_hit     = s2_ptw_res && sx_qual && s2_ptw_res_pld.hit(s1_req_pld_q.mpn)
 
   if (P.mlbEn) {
-    val rst_q      = dontTouch(Wire(UInt((P.mlbIdx + 1).W)))
-    val rst_pend_q = dontTouch(Wire(Bool()))
+    val mlb_q = Pin(Vec(P.mlbWays, new MLBEntry(P)))
 
-    // rst_i can assert at any time, even when mlb or ptw is busy
-    val rst_req_nq = rst_pend_q || rst_done && rst_i
-    val rst_req    = rst_req_nq && mlb_idle
+    val s2_inv_way = mlb_q.map(!_.vld).U
+    val s2_rpl_way = Any(s2_inv_way) ?? PrL(s2_inv_way) ::
+                                        PRA(P.mlbWays, s2_ptw_res)
 
-    rst_pend_q := RegEnable(rst_req_nq && !mlb_idle,
-                            false.B,
-                            rst_req_nq)
+    val s0_hit_way = Pin(Vec(P.mlbWays, Bool()))
 
-    rst_q := RegEnable(NeQ(rst_req, rst_q + 1.U),
-                       0.U,
-                       rst_req || !rst_done)
-
-    val s0_ren     = mrq_req
-    val s1_ren_q   = RegNext(s0_ren,   false.B)
-    val s2_ren_q   = RegNext(s1_ren_q, false.B)
-
-    val s0_mpn     = mrq_req_i.bits.mpn
-    val s1_mpn_q   = RegEnable(s0_mpn,   s0_ren)
-    val s2_mpn_q   = RegEnable(s1_mpn_q, s1_ren_q)
-
-    val s1_raddr   = s1_mpn_q(P.mlbIdx.W)
-    val s2_rdata   = dontTouch(Wire(Vec(P.mlbWays, new MLBEntry(P))))
-
-    val s2_set     = s2_mpn_q(P.mlbIdx.W)
-    val s2_tag     = s2_mpn_q(P.mpnBits := P.mlbIdx)
-
-    val s2_vld_way = s2_rdata.map(_.vld).U
-    val s2_hit_way = s2_rdata.map(_.hit(s2_tag)).U
-    val s2_hit_any = Any(s2_hit_way)
-
-    assert(s2_ren_q -> OHp(s2_hit_way, true.B))
-
-    // simple pseudo-random replacement
-    val s2_rpl_way = PRA(P.mlbWays, s2_mis)
-
-    rst_done := rst_q(P.mlbIdx)
-    rst_pend := rst_pend_q
-
-    mlb_busy := s1_ren_q || s2_ren_q
-    mlb_data := OrM(s2_hit_way, s2_rdata)
-
-    s2_hit   := s2_ren_q &&  s2_hit_any
-    s2_mis   := s2_ren_q && !s2_hit_any
-    s2_mpn   := s2_mpn_q
-
-    val wen   = ptw_resp_i.valid && !ptw_resp_i.bits.err  || !rst_done
-    val wsel  = rst_done ?? RegEnable(s2_rpl_way, s2_mis) :: ~0.U(P.mlbWays.W)
-    val waddr = rst_done ?? RegEnable(s2_set,     s2_mis) ::  rst_q(P.mlbIdx.W)
-    val wdata = rst_done ?? ptw_resp_i.bits               ::  MLBEntry(P)
-
-    // single port mem model
     for (i <- 0 until P.mlbWays) {
-      val tag_data = SyncReadMem(P.mlbSets, UInt(mlb_data.getWidth.W))
-      val upd      = wen && wsel(i)
+      val rpl = s2_rpl_way(i)
+      val set = s2_ptw_res && rpl
 
-      s2_rdata(i) := DontCare
+      val hit = mlb_q(i).hit(s0_req_pld.mpn)
+      val clr = rst_i
 
-      when (upd || s1_ren_q) {
-        val port = tag_data(upd ?? waddr :: s1_raddr)
+      // calculated for stage 1. not qualified yet
+      s0_hit_way(i) := rpl && s0_ptw_hit ||
+                       hit && sx_qual && !set && !clr
 
-        when (upd) {
-          port        := wdata.asUInt
-        } .otherwise {
-          s2_rdata(i) := port.asTypeOf(new MLBEntry(P))
-        }
-      }
+      mlb_q(i)     := RegEnable(s2_ptw_res_pld, set)
+      mlb_q(i).vld := RegEnable(set, false.B,   set || clr)
     }
+
+    // qualified
+    val s1_hit_way = mlb_q.map(_.vld).U & RegEnable(s0_hit_way.U, s0_req)
+    val s1_hit_any = Any(s1_hit_way)
+    val s1_hit_mux = OrM(s1_hit_way, mlb_q)
+
+    Chk(s1_req_q  -> OHp(s1_hit_way, true.B))
+
+    // perm fault
+    val s1_ptw_res_pf  = Non(s1_req_pld_q.wnr ?? s2_ptw_res_pld.attr(1) ::
+                                                 s2_ptw_res_pld.attr(0))
+    val s1_hit_res_pf  = Non(s1_req_pld_q.wnr ?? s1_hit_mux.attr(1) ::
+                                                 s1_hit_mux.attr(0))
+
+    val s1_ptw_res_pld = MLBRes(P,
+                                s2_ptw_rdy,
+                                s1_req_pld_q.idx,
+                                s2_ptw_res_pld.err || s1_ptw_res_pf,
+                                s2_ptw_res_pld.hpn(s1_req_pld_q.mpn),
+                                s2_ptw_res_pld.attr)
+    val s1_hit_res_pld = MLBRes(P,
+                                s2_ptw_rdy,
+                                s1_req_pld_q.idx,
+                                s1_hit_mux.err || s1_hit_res_pf,
+                                s1_hit_mux.hpn(s1_req_pld_q.mpn),
+                                s1_hit_mux.attr)
+
+    s1_hit := s1_req_q && sx_qual && (s1_hit_any ||  s1_ptw_hit)
+    s1_mis := s1_req_q && sx_qual && !s1_hit_any && !s1_ptw_hit
+
+    s1_res := s1_ptw_hit ?? s1_ptw_res_pld :: s1_hit_res_pld
 
   } else {
-    rst_done := true.B
-    rst_pend := false.B
 
-    mlb_busy := false.B
-    mlb_data := MLBEntry(P)
+    s1_hit := s1_req_q && sx_qual &&  s1_ptw_hit
+    s1_mis := s1_req_q && sx_qual && !s1_ptw_hit
 
-    s2_hit   := false.B
-    s2_mis   := mrq_req
-    s2_mpn   := mrq_req_i.bits.mpn
+    s1_res := MLBRes(P,
+                     s2_ptw_rdy,
+                     s1_req_pld_q.idx,
+                     s2_ptw_res_pld.err,
+                     s2_ptw_res_pld.hpn(s1_req_pld_q.mpn),
+                     s2_ptw_res_pld.attr)
   }
+
+  val s1_mis_vld = s1_mis && s2_ptw_rdy
 
 
   //
-  // fsm
+  // stage 2
 
-  val ptw_fsm_en  = dontTouch(Wire(Bool()))
-  val ptw_fsm_q   = dontTouch(Wire(UInt(2.W)))
-  val ptw_fsm_nxt = dontTouch(Wire(UInt(2.W)))
+  val s2_req_q     = Pin(Bool())
+  val s2_req_pld_q = RegEnable(s1_req_pld_q, s1_mis_vld)
 
-  ptw_fsm_en  := false.B
-  ptw_fsm_nxt := ptw_fsm_q
+  s2_req_q := RegEnable(s1_mis_vld,
+                        false.B,
+                        s1_mis_vld || s2_ptw_res_raw || rst_i)
 
-  switch (ptw_fsm_q) {
-    is (fsm_idle) {
-      ptw_fsm_en  := s2_mis
-      ptw_fsm_nxt := fsm_req
-    }
-    is (fsm_req) {
-      ptw_fsm_en  := ptw_req_o.ready
-      ptw_fsm_nxt := fsm_resp
-    }
-    is (fsm_resp) {
-      ptw_fsm_en  := ptw_resp_i.valid
-      ptw_fsm_nxt := fsm_idle
-    }
-  }
+  // stop receiving res on rst
+  s2_ptw_res_raw := sx_qual        &&  ptw_res_i.valid
+  s2_ptw_res     := s2_ptw_res_raw && !ptw_res_i.bits.err
+  s2_ptw_res_pld :=                    ptw_res_i.bits
 
-  ptw_fsm_q := RegEnable(ptw_fsm_nxt, fsm_idle, ptw_fsm_en)
-
-  val ptw_fsm_is_idle = ptw_fsm_q === fsm_idle
-  val ptw_fsm_is_req  = ptw_fsm_q === fsm_req
-  val ptw_fsm_is_resp = ptw_fsm_q === fsm_resp
-
-  mlb_idle := rst_done && !mlb_busy && !ptw_fsm_is_req && !ptw_fsm_is_resp
-
-
-  //
-  // huge page & bypass
-
-  val mlb_resp_vld = s2_hit || ptw_resp_i.valid
-  val mlb_resp_mux = ptw_fsm_is_resp ?? ptw_resp_i.bits :: mlb_data
-
-  // reconstruct the request mpn
-  val mlb_resp_mpn = mlb_resp_mux.mpn ## (ptw_fsm_is_resp ?? s3_mpn_q(P.mlbIdx.W) ::
-                                                             s2_mpn  (P.mlbIdx.W))
-
-  def gen_ppn(l: Int): UInt = {
-    // total number of bits to be linearly mapped
-    val t = P.maBits - P.ptwTop - l * 9
-    val p = t - 12
-
-    if (t >= P.paBits)
-      0.U(P.ppnBits.W)
-    else if (t <= 12)
-      mlb_resp_mux.ppn
-    else
-      // leading part from ppn plus linear part from mpn
-      mlb_resp_mux.ppn(P.ppnBits := p) ## mlb_resp_mpn(p.W)
-  }
-
-  val mlb_resp_ppn = OrM(Dec(mlb_resp_mux.lvl)(P.ptwLvl.W),
-                         Seq.tabulate(P.ptwLvl)(gen_ppn))
-
-  val mlb_resp     = MLBResp(P,
-                             mlb_resp_mux.err,
-                             mlb_resp_ppn,
-                             mlb_resp_mux.attr)
+  // enable b2b
+  s2_ptw_rdy := sx_qual && (s2_ptw_res_raw || !s2_req_q)
 
 
   //
   // output
 
-  mrq_req_i.ready  := mlb_idle && !rst_pend && !rst_i
+  mrq_res_o.valid := s1_hit
+  mrq_res_o.bits  := s1_res
 
-  mrq_resp_o.valid := mlb_resp_vld
-  mrq_resp_o.bits  := mlb_resp
+  ptw_res_o.valid := s2_ptw_res_raw
+  ptw_res_o.bits  := MLBRes(P,
+                            true.B,
+                            s2_req_pld_q.idx,
+                            s2_ptw_res_pld.err,
+                            s2_ptw_res_pld.hpn(s2_req_pld_q.mpn),
+                            s2_ptw_res_pld.attr)
 
-  ptw_req_o.valid  := ptw_fsm_is_req
-  ptw_req_o.bits   := MLBReq(P,
-                             true.B,
-                             s3_mpn_q)
-
-  // override
-  if (P.bsSkip) {
-    mrq_req_i .tie
-    mrq_resp_o.tie
-
-    ptw_req_o .tie
-  }
+  ptw_req_o.valid := s1_mis_vld
+  ptw_req_o.bits  := MLBReq(P,
+                            s1_req_pld_q.idx,
+                            false.B,
+                            s1_req_pld_q.mpn)
 }
