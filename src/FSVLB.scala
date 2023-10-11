@@ -22,11 +22,6 @@ class VLBRes(val P: Param) extends Bundle {
   val attr  = UInt(P.attrBits.W)
 }
 
-class InvReq(val P: Param) extends Bundle {
-  val idx   = UInt(2.W)
-  val mcn   = UInt(P.mcnBits.W)
-}
-
 class TTWExt(val P: Param) extends Bundle {
   val idx   = UInt(P.vlbIdx.W)
   val vpn   = UInt(P.vpnBits.W)
@@ -64,13 +59,13 @@ class VMA(val P: Param) extends Bundle {
     else
       false.B
   }
-  def clr(k: UInt, a: UInt, s: UInt, x: Bool, i: InvReq): Bool = {
-    val p = (i.mcn ## i.idx)(P.pmtBits.W)
+  def clr(k: UInt, a: UInt, s: UInt, d: VTDReq): Bool = {
+    val p = d.mqn(P.pmtBits.W)
 
     vld &&
       ((a === asid) &&
        (s === sdid) && k(1) || k(2) ||
-       (p === pmt ) && x)
+       (p === pmt ) && d.wnr)
   }
 }
 
@@ -87,13 +82,13 @@ class VMP(val P: Param) extends Bundle {
     vld && (v === vpn) &&
        (a === asid)
   }
-  def clr(k: UInt, a: UInt, s: UInt, x: Bool, i: InvReq): Bool = {
-    val p = (i.mcn ## i.idx)(P.pmtBits.W)
+  def clr(k: UInt, a: UInt, s: UInt, d: VTDReq): Bool = {
+    val p = d.mqn(P.pmtBits.W)
 
     vld &&
       ((a === asid) &&
        (s === sdid) && k(1) || k(2) ||
-       (p === pmt ) && x)
+       (p === pmt ) && d.wnr)
   }
 }
 
@@ -118,16 +113,6 @@ object VLBRes {
     ret.err   := e
     ret.mpn   := m
     ret.attr  := a
-    ret
-  }
-}
-
-object InvReq {
-  def apply(P: Param, i: UInt, m: UInt): InvReq = {
-    val ret = Pin(new InvReq(P))
-
-    ret.idx   := i
-    ret.mcn   := m
     ret
   }
 }
@@ -206,26 +191,26 @@ class VLB(val P: Param, N: Int) extends Module {
   // ---------------------------
   // io
 
-  val vlb_req_i   = IO(Vec(N, Flipped(Valid(new VLBReq(P)))))
-  val vlb_res_o   = IO(Vec(N,         Valid(new VLBRes(P))))
-  val vlb_ttw_o   = IO(               Valid(new VLBRes(P)))
+  val vlb_req_i   = IO(Vec(N, Flipped(Decoupled(new VLBReq(P)))))
+  val vlb_res_o   = IO(Vec(N,         Decoupled(new VLBRes(P))))
+  val vlb_ttw_o   = IO(                   Valid(new VLBRes(P)))
 
-  val inv_req_i   = IO(       Flipped(Valid(new InvReq(P))))
+  val vtd_req_i   = IO(                   Input(new VTDReq(P)))
 
-  val ttw_req_o   = IO(               Valid(new VLBReq(P)))
-  val ttw_res_i   = IO(       Flipped(Valid(new VMA   (P))))
-  val ttw_ext_i   = IO(               Input(new TTWExt(P)))
+  val ttw_req_o   = IO(                   Valid(new VLBReq(P)))
+  val ttw_res_i   = IO(       Flipped(    Valid(new VMA   (P))))
+  val ttw_ext_i   = IO(                   Input(new TTWExt(P)))
 
-  val satp_i      = IO(               Input(UInt(64.W)))
-  val uatp_i      = IO(               Input(UInt(64.W)))
-  val uatc_i      = IO(               Input(new VSCCfg()))
+  val satp_i      = IO(                   Input(UInt(64.W)))
+  val uatp_i      = IO(                   Input(UInt(64.W)))
+  val uatc_i      = IO(                   Input(new VSCCfg()))
 
   // 0: kill the inflight ttw
   // 1: kill vlb entries with matching asid/sdid
   // 2: kill all vlb entries
-  val kill_i      = IO(               Input(UInt(3.W)))
-  val kill_asid_i = IO(               Input(UInt(P.asidBits.W)))
-  val kill_sdid_i = IO(               Input(UInt(P.sdidBits.W)))
+  val kill_i      = IO(                   Input(UInt(3.W)))
+  val kill_asid_i = IO(                   Input(UInt(P.asidBits.W)))
+  val kill_sdid_i = IO(                   Input(UInt(P.sdidBits.W)))
 
 
   // ---------------------------
@@ -234,8 +219,7 @@ class VLB(val P: Param, N: Int) extends Module {
   val sx_kill        = Any(kill_i(2, 1))
   val sx_qual        = Non(kill_i(2, 1))
 
-  val inv_req        = inv_req_i.valid
-  val inv_req_pld    = inv_req_i.bits
+  val vtd_req        = vtd_req_i
 
   val ttw_req        = ttw_req_o.fire
   val ttw_res        = ttw_res_i.fire
@@ -254,18 +238,19 @@ class VLB(val P: Param, N: Int) extends Module {
   val sp_req_vpn     = vlb_req_i.map(_.bits.vpn)
   val sp_kill        = vlb_req_i.map(_.bits.kill)
 
-  val sp_hit         = Pin(Vec(N, Bool()))
-  val sp_mis         = Pin(Vec(N, Bool()))
-  val sp_hit_err     = Pin(Vec(N, Bool()))
-  val sp_hit_inv     = Pin(Vec(N, Bool()))
-  val sp_hit_mux     = Pin(Vec(N, new VMP(P)))
+  val sp_hit         = Pin(Vec (N, Bool()))
+  val sp_mis         = Pin(Vec (N, Bool()))
+  val sp_hit_err     = Pin(Vec (N, Bool()))
+  val sp_hit_inv     = Pin(Vec (N, Bool()))
+  val sp_hit_mux     = Pin(Vec (N, new VMP(P)))
 
   // forward decl
   val s0_req         = Pin(Bool())
   val s0_req_idx     = Pin(UInt(P.vlbIdx.W))
   val s0_req_vpn     = Pin(UInt(P.vpnBits.W))
 
-  val s1_req_sel_q   = Pin(Vec(N, Bool()))
+  val s0_req_sel     = Pin(Vec (N, Bool()))
+  val s1_req_sel_q   = Pin(Vec (N, Bool()))
 
   val s0_kill        = Pin(Bool())
   val s1_kill        = Pin(Bool())
@@ -316,19 +301,18 @@ class VLB(val P: Param, N: Int) extends Module {
       val clr = tlb_q(i).clr(kill_i,
                              kill_asid_i,
                              kill_sdid_i,
-                             inv_req,
-                             inv_req_pld)
+                             vtd_req)
 
       tlb_q(i)     := RegEnable(sp_ttw_res_pld, set)
       tlb_q(i).vld := RegEnable(set, false.B,   set || clr)
     }
 
     // don't issue the same req b2b to vlb to avoid multi-hit
-    val sp_req_nxt   = sp_mis.U & sp_req_vpn.map(v => !(s0_req && (v === s0_req_vpn))).U
+    val sp_mis_vld   = sp_mis.U & sp_req_vpn.map(v => !(s0_req && (v === s0_req_vpn))).U
 
     // round-robin
-    val sp_req_any   = Any    (sp_req_nxt) && sx_qual
-    val sp_req_sel   = RRA    (sp_req_nxt, sp_req_any)
+    val sp_req_any   = Any    (sp_mis_vld) && sx_qual
+    val sp_req_sel   = RRA    (sp_mis_vld, sp_req_any)
     val s0_req_sel_q = RegNext(sp_req_sel, 0.U)
 
     s0_req     := RegNext  (sp_req_any, false.B) && !s0_kill && sx_qual
@@ -340,6 +324,7 @@ class VLB(val P: Param, N: Int) extends Module {
     s1_qual    := true.B
 
     for (i <- 0 until N) {
+      s0_req_sel  (i) := DontCare
       s1_req_sel_q(i) := RegNext(s0_req_sel_q(i), false.B)
     }
 
@@ -352,12 +337,12 @@ class VLB(val P: Param, N: Int) extends Module {
     }
 
     // round-robin
-    val sp_req_any = Any(sp_req.U) && sx_qual
-    val sp_req_sel = RRA(sp_req.U, sp_req_any)
+    val s0_req_any = Any(sp_req.U) && sx_qual
 
-    s0_req     := sp_req_any
-    s0_req_idx := OrM(sp_req_sel, sp_req_idx)
-    s0_req_vpn := OrM(sp_req_sel, sp_req_vpn)
+    s0_req     := s0_req_any
+    s0_req_sel := RRA(sp_req.U, s0_req_any).V
+    s0_req_idx := OrM(s0_req_sel.U, sp_req_idx)
+    s0_req_vpn := OrM(s0_req_sel.U, sp_req_vpn)
 
     // for better timing and efficiency, upstream should drive these kills
     // using super slow/late signals
@@ -366,7 +351,7 @@ class VLB(val P: Param, N: Int) extends Module {
     s1_qual    := OrM(s1_req_sel_q, sp_kill.map(k => Non(RegNext(k(0)))))
 
     for (i <- 0 until N) {
-      s1_req_sel_q(i) := RegNext(sp_req_sel(i), 0.U)
+      s1_req_sel_q(i) := RegNext(s0_req_sel(i), 0.U)
     }
   }
 
@@ -417,8 +402,7 @@ class VLB(val P: Param, N: Int) extends Module {
     val clr = vlb_q(i).clr(kill_i,
                            kill_asid_i,
                            kill_sdid_i,
-                           inv_req,
-                           inv_req_pld)
+                           vtd_req)
 
     val vld = sx_qual && !set && !clr
 
@@ -557,6 +541,8 @@ class VLB(val P: Param, N: Int) extends Module {
       val sp_res_err = sp_hit_err(i) ||
                        sx_mis_sdid(sp_hit_mux(i).sdid)
 
+      vlb_req_i(i).ready := true.B
+
       vlb_res_o(i).valid := sp_req(i)
       vlb_res_o(i).bits  := VLBRes(P,
                                    sp_req_idx(i),
@@ -574,6 +560,8 @@ class VLB(val P: Param, N: Int) extends Module {
                      sx_mis_sdid(s1_hit_mux.sdid)
 
     for (i <- 0 until N) {
+      vlb_req_i(i).ready := s0_req_sel(i)
+
       vlb_res_o(i).valid := s1_req && s1_req_sel_q(i)
       vlb_res_o(i).bits  := VLBRes(P,
                                    s1_req_idx_q,

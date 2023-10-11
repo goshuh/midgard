@@ -9,6 +9,7 @@ import  midgard.util._
 class MemReq(val P: Param) extends Bundle {
   val idx   = UInt(P.ttwIdx.W)
   val mcn   = UInt(P.mcnBits.W)
+  val vtd   = UInt(2.W)
 }
 
 class MemRes(val P: Param) extends Bundle {
@@ -48,11 +49,12 @@ class VSCEntry(val P: Param) extends Bundle {
 
 
 object MemReq {
-  def apply(P: Param, i: UInt, m: UInt): MemReq = {
+  def apply(P: Param, i: UInt, m: UInt, v: UInt): MemReq = {
     val ret = Pin(new MemReq(P))
 
     ret.idx := i
     ret.mcn := m
+    ret.vtd := v
     ret
   }
 }
@@ -70,7 +72,7 @@ class VSC(val P: Param) extends Module {
   val mem_req_o = IO(                      Decoupled(new MemReq(P)))
   val mem_res_i = IO(              Flipped(Decoupled(new MemRes(P))))
 
-  val inv_req_i = IO(              Flipped(    Valid(new InvReq(P))))
+  val vtd_req_i = IO(                          Input(new VTDReq(P)))
 
   val satp_i    = IO(                          Input(UInt(64.W)))
   val uatp_i    = IO(                          Input(UInt(64.W)))
@@ -88,8 +90,8 @@ class VSC(val P: Param) extends Module {
       vsc_fsm_res  ::
       vsc_fsm_null) = Enum(4)
 
-  val inv_req        = inv_req_i.valid
-  val inv_req_pld    = inv_req_i.bits.mcn ## inv_req_i.bits.idx
+  val vtd_req        = vtd_req_i.wnr
+  val vtd_req_pld    = vtd_req_i
 
   val mem_req        = mem_req_o.fire
   val mem_res        = mem_res_i.fire
@@ -107,7 +109,7 @@ class VSC(val P: Param) extends Module {
   val s0_req_raw     = s0_req_rdy.U & vlb_req_i.map(_.valid).U
   val s0_req_any     = Any(s0_req_raw)
 
-  val s0_req         = inv_req || s0_req_any
+  val s0_req         = vtd_req || s0_req_any
   val s0_req_sel     = RRA(s0_req_raw, s0_req)
   val s0_req_pld     = OrM(s0_req_sel,
                            vlb_req_i.map(_.bits))
@@ -124,9 +126,9 @@ class VSC(val P: Param) extends Module {
   val s0_req_mmask   = Ext(BFL(uatc_i.mmask, s0_req_vsc_s), P.vaBits)
 
   val s0_req_min     = Non(s0_req_vsc_s)
-  val s0_req_idx     = inv_req ?? inv_req_pld :: (s0_req_idx_s & ~s0_req_vsh_1 | s0_req_vsh_2)
-  val s0_req_bot     = inv_req ?? 0.U         :: (s0_req_va    & ~s0_req_mmask)(P.vaBits := 12)
-  val s0_req_top     = inv_req ?? 0.U         ::  s0_req_top_s
+  val s0_req_idx     = vtd_req ?? vtd_req_pld.mqn(32.W) :: (s0_req_idx_s & ~s0_req_vsh_1 | s0_req_vsh_2)
+  val s0_req_bot     = vtd_req ?? 0.U                   :: (s0_req_va    & ~s0_req_mmask)(P.vaBits := 12)
+  val s0_req_top     = vtd_req ?? 0.U                   ::  s0_req_top_s
 
 
   //
@@ -214,7 +216,8 @@ class VSC(val P: Param) extends Module {
                      rst_pend)
 
   for (i <- 0 until P.vscWays) {
-    val wid = 8 * (new VMA(P).getWidth + 7) / 8
+    val old = new VMA(P).getWidth
+    val wid = 8 * (old + 7) / 8
 
     val ram = Module(new SPRAM(P.vscBits, wid, wid / 8))
 
@@ -235,7 +238,7 @@ class VSC(val P: Param) extends Module {
     ram.wdata     := ram_wdata.asUInt
     ram.wstrb     := Rep(true.B, wid / 8)
 
-    s2_rdata  (i) := ram.rdata(wid.W).asTypeOf(new VMA(P))
+    s2_rdata  (i) := ram.rdata(old.W).asTypeOf(new VMA(P))
 
     s2_hit_way(i) := s2_req_q &&  s2_rdata(i).vld && s2_rdata(i).hit(s2_req_pld_q.vpn, asid)
     s2_inv_way(i) := s2_req_q && !s2_rdata(i).vld
@@ -314,7 +317,7 @@ class VSC(val P: Param) extends Module {
                 !(s2_req_q && s2_req_sel_q(i))
 
     idle_o     (i) := rdy || kill_q
-    s0_req_rdy (i) := rdy && rst_done && !inv_req
+    s0_req_rdy (i) := rdy && rst_done && !vtd_req
 
     s2_hit_ttw (i) := fsm_is_busy &&
                          (s2_req_bot_q === vsc_q(i).bot)
@@ -369,7 +372,8 @@ class VSC(val P: Param) extends Module {
   mem_req_o.valid := Any(mem_req_raw)
   mem_req_o.bits  := MemReq(P,
                             Enc(mem_req_sel),
-                            mem_req_arr | mem_req_idx)
+                            mem_req_arr | mem_req_idx,
+                            mem_req_mux.idx(2.W))
 
-  mem_res_i.ready := Non(inv_req)
+  mem_res_i.ready := Non(vtd_req)
 }

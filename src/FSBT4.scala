@@ -47,7 +47,7 @@ class BT4(val P: Param) extends Module {
   val mem_req_o = IO(                      Decoupled(new MemReq(P)))
   val mem_res_i = IO(              Flipped(Decoupled(new MemRes(P))))
 
-  val inv_req_i = IO(              Flipped(    Valid(new InvReq(P))))
+  val vtd_req_i = IO(                          Input(new VTDReq(P)))
 
   val satp_i    = IO(                          Input(UInt(64.W)))
   val uatp_i    = IO(                          Input(UInt(64.W)))
@@ -271,7 +271,8 @@ class BT4(val P: Param) extends Module {
   mem_req_o.valid := mem_fsm_is_req
   mem_req_o.bits  := MemReq(P,
                             0.U,
-                            ptw_req_mcn_q)
+                            ptw_req_mcn_q,
+                            0.U)
 
   mem_res_i.ready := mem_fsm_is_dly
 

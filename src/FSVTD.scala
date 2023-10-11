@@ -6,33 +6,33 @@ import  midgard._
 import  midgard.util._
 
 
-class VLDReq(val P: Param) extends Bundle {
+class VTDReq(val P: Param) extends Bundle {
   val wnr  = Bool()
-  val mdn  = UInt(P.mdnBits.W)
+  val mqn  = UInt(P.mqnBits.W)
   val vec  = UInt(P.dirBits.W)
 }
 
-class VLDEntry(val P: Param) extends Bundle {
+class VTDEntry(val P: Param) extends Bundle {
   val vld  = Bool()
-  val tag  = UInt(P.vldTagBits.W)
+  val tag  = UInt(P.vtdTagBits.W)
   val vec  = UInt(P.dirBits.W)
 }
 
 
-object VLDReq {
-  def apply(P: Param, w: Bool, m: UInt, v: UInt): VLDReq = {
-    val ret = Pin(new VLDReq(P))
+object VTDReq {
+  def apply(P: Param, w: Bool, m: UInt, v: UInt): VTDReq = {
+    val ret = Pin(new VTDReq(P))
 
     ret.wnr := w
-    ret.mdn := m
+    ret.mqn := m
     ret.vec := v
     ret
   }
 }
 
-object VLDEntry {
-  def apply(P: Param, t: UInt, v: UInt): VLDEntry = {
-    val ret = Pin(new VLDEntry(P))
+object VTDEntry {
+  def apply(P: Param, t: UInt, v: UInt): VTDEntry = {
+    val ret = Pin(new VTDEntry(P))
 
     ret.vld := true.B
     ret.tag := t
@@ -42,35 +42,35 @@ object VLDEntry {
 }
 
 
-class VLD(val P: Param) extends Module {
+class VTD(val P: Param) extends Module {
 
   // ---------------------------
   // io
 
-  val vld_req_i = IO(Flipped(Decoupled(new VLDReq(P))))
-  val vld_res_o = IO(            Valid(new VLDReq(P)))
+  val vtd_req_i = IO(Flipped(Decoupled(new VTDReq(P))))
+  val vtd_res_o = IO(           Output(new VTDReq(P)))
 
 
   // ---------------------------
   // logic
 
-  val sx_inv       = 0.U.asTypeOf(new VLDEntry(P))
+  val sx_inv       = 0.U.asTypeOf(new VTDEntry(P))
 
-  val s0_req       = vld_req_i.valid
-  val s0_req_pld   = vld_req_i.bits
+  val s0_req       = vtd_req_i.valid
+  val s0_req_pld   = vtd_req_i.bits
 
-  val s0_idx       = s0_req_pld.mdn(P.vldBits.W)
+  val s0_idx       = s0_req_pld.mqn(P.vtdBits.W)
 
   val s1_req_q     = RegNext  (s0_req,     false.B)
   val s1_req_pld_q = RegEnable(s0_req_pld, s0_req)
 
-  val s1_rdata     = Vec(P.vldWays,  new VLDEntry(P))
-  val s1_hit_way   = Vec(P.vldWays,  Bool())
-  val s1_inv_way   = Vec(P.vldWays,  Bool())
+  val s1_rdata     = Pin(Vec(P.vtdWays,  new VTDEntry(P)))
+  val s1_hit_way   = Pin(Vec(P.vtdWays,  Bool()))
+  val s1_inv_way   = Pin(Vec(P.vtdWays,  Bool()))
   val s1_hit_mux   = OrM(s1_hit_way, s1_rdata)
 
-  val s1_idx       = s1_req_pld_q.mdn(P.vldBits.W)
-  val s1_tag       = s1_req_pld_q.mdn(P.mdnBits :- P.vldBits)
+  val s1_idx       = s1_req_pld_q.mqn(P.vtdBits.W)
+  val s1_tag       = s1_req_pld_q.mqn(P.mqnBits :- P.vtdBits)
 
   val s1_hit_any   = Any(s1_hit_way)
   val s1_inv_any   = Any(s1_inv_way)
@@ -83,49 +83,50 @@ class VLD(val P: Param) extends Module {
 
   val s1_rpl_way   = s1_hit_any ??     s1_hit_way.U  ::
                      s1_inv_any ?? PrL(s1_inv_way.U) ::
-                                   PRA(P.vldWays, s1_req_q)
-  val s1_rpl_mdn   = s1_clr ?? s1_req_pld_q.mdn ::
+                                   PRA(P.vtdWays, s1_req_q)
+  val s1_rpl_mqn   = s1_clr ?? s1_req_pld_q.mqn ::
                     (s1_hit_mux.tag ## s1_idx)
 
   val s1_vld       = s1_clr || s1_new || s1_upd
 
   val s1_wdata     = s1_clr ?? sx_inv ::
-                     s1_new ?? VLDEntry(P,
+                     s1_new ?? VTDEntry(P,
                                         s1_tag,
                                         s1_req_pld_q.vec) ::
-                               VLDEntry(P,
+                               VTDEntry(P,
                                         s1_tag,
                                         s1_req_pld_q.vec | s1_hit_mux.vec)
 
   val s1_res       = s1_clr ||
                      s1_new && !s1_inv_any
-  val s1_res_pld   = VLDReq(P,
+  val s1_res_pld   = VTDReq(P,
                             false.B,
-                            s1_rpl_mdn,
+                            s1_rpl_mqn,
                             s1_hit_mux.vec)
 
   val s2_res_q     = RegNext  (s1_res,     false.B)
   val s2_res_pld_q = RegEnable(s1_res_pld, s1_res)
 
   // reset
-  val rst_q    = Pin(UInt((P.vldBits + 1).W))
-  val rst_pend = Non(rst_q(P.vldBits))
-  val rst_done = Any(rst_q(P.vldBits))
+  val rst_q    = Pin(UInt((P.vtdBits + 1).W))
+  val rst_pend = Non(rst_q(P.vtdBits))
+  val rst_done = Any(rst_q(P.vtdBits))
 
   rst_q := RegEnable(rst_q + 1.U,
                      0.U,
                      rst_pend)
 
-  for (i <- 0 until P.vldWays) {
-    val wid = 8 * (new VLDEntry(P).getWidth + 7) / 8
+  for (i <- 0 until P.vtdWays) {
+    val old = new VTDEntry(P).getWidth
+    val wid = 8 * (old + 7) / 8
 
-    val ram = Module(new SPRAM(P.vldSets, wid, wid / 8))
+    val ram = Module(new SPRAM(P.vtdSets, wid, wid / 8))
 
     val ram_ren    = s0_req
     val ram_raddr  = s0_idx
 
     val ram_wen    = rst_pend || s1_vld
-    val ram_waddr  = rst_pend ?? rst_q(P.vldBits.W) :: s1_rpl_way
+    val ram_waddr  = rst_pend ?? rst_q(P.vtdBits.W) :: s1_rpl_way
     val ram_wdata  = rst_pend ?? sx_inv             :: s1_wdata
 
     ram.clk       := clock
@@ -135,7 +136,7 @@ class VLD(val P: Param) extends Module {
     ram.wdata     := ram_wdata.asUInt
     ram.wstrb     := Rep(true.B, wid / 8)
 
-    s1_rdata  (i) := ram.rdata
+    s1_rdata  (i) := ram.rdata(old.W).asTypeOf(new VTDEntry(P))
 
     s1_hit_way(i) := s1_req_q &&  s1_rdata(i).vld && (s1_rdata(i).tag === s1_tag)
     s1_inv_way(i) := s1_req_q && !s1_rdata(i).vld
@@ -145,8 +146,9 @@ class VLD(val P: Param) extends Module {
   //
   // output
 
-  vld_req_i.ready := rst_done && Non(s1_clr ## s1_new ## s1_upd)
+  vtd_req_i.ready := rst_done && Non(s1_clr ## s1_new ## s1_upd)
 
-  vld_res_o.valid := s2_res_q
-  vld_res_o.bits  := s2_res_pld_q
+  vtd_res_o.wnr   := s2_res_q
+  vtd_res_o.mqn   := s2_res_pld_q.mqn
+  vtd_res_o.vec   := s2_res_pld_q.vec
 }

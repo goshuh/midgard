@@ -29,8 +29,8 @@ case class Param(
   vscSets:  Int,
   vscWays:  Int,
 
-  vldSets:  Int,
-  vldWays:  Int,
+  vtdSets:  Int,
+  vtdWays:  Int,
   dirBits:  Int,
 
   llcIdx:   Int,
@@ -52,6 +52,10 @@ case class Param(
   val clBytes    =  clBits / 8
   val clWid      =  log2Ceil(clBytes)
 
+  val vqnBits    =  vaBits - 2
+  val mqnBits    =  maBits - 2
+  val pqnBits    =  paBits - 2
+
   val vdnBits    =  vaBits - 3
   val mdnBits    =  maBits - 3
   val pdnBits    =  paBits - 3
@@ -70,8 +74,8 @@ case class Param(
   val vscBits    =  log2Ceil(vscSets)
   val vscTagBits =  mdnBits - vscBits
 
-  val vldBits    =  log2Ceil(vldSets)
-  val vldTagBits =  mdnBits - vldBits
+  val vtdBits    =  log2Ceil(vtdSets)
+  val vtdTagBits =  mdnBits - vtdBits
 
   val ttwIdx     =  log2Ceil(ttwNum)
   val mlbIdx     =  log2Ceil(mlbWays)

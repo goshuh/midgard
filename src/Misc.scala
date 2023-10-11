@@ -14,16 +14,16 @@ package object util {
   // see: https://github.com/chipsalliance/chisel3/issues/1743
 
   def Any[T <: Data](d: T): Bool = {
-    d.asUInt().orR()
+    d.asUInt.orR()
   }
   def All[T <: Data](d: T): Bool = {
-    d.asUInt().andR()
+    d.asUInt.andR()
   }
   def Non[T <: Data](d: T): Bool = {
-    d.asUInt() === 0.U
+    d.asUInt === 0.U
   }
   def Neg[T <: Data](d: T): UInt = {
-   ~d.asUInt()
+   ~d.asUInt
   }
 
   def ShL(d: UInt, n: Int): UInt = {
@@ -116,7 +116,7 @@ package object util {
   }
 
   def Rev(d: UInt): UInt = {
-    Cat(d.asBools()).asUInt()
+    Cat(d.asBools).asUInt
   }
 
   def Rep(d: UInt, n: Int): UInt = {
@@ -304,19 +304,19 @@ package object util {
       Mux(p.a, p.b.asInstanceOf[T], d)
     }
     def V: Vec[Bool] = {
-      VecInit(d.asUInt().asBools())
+      VecInit(d.asUInt.asBools)
     }
   }
 
   implicit class withVec[T <: Data](v: Vec[T]) {
     def U: UInt = {
-      v.asUInt()
+      v.asUInt
     }
   }
 
   implicit class withSeq[T <: Data](s: Seq[T]) {
     def U: UInt = {
-      Cat(s.map(_.asUInt()).reverse)
+      Cat(s.map(_.asUInt).reverse)
     }
   }
 

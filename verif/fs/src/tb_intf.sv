@@ -3,9 +3,9 @@ interface tb_ctl_intf (
     input wire reset
 );
 
-    bit            inv_req_i_valid;
-    bit [     1:0] inv_req_i_bits_idx;
-    bit [    57:0] inv_req_i_bits_mcn;
+    bit            vtd_req_i_wnr;
+    bit [    58:0] vtd_req_i_mqn;
+    bit            vtd_req_i_vtd;
 
     bit [    63:0] satp_i;
     bit [    63:0] uatp_i;
@@ -19,7 +19,7 @@ interface tb_ctl_intf (
     bit [    19:0] uatc_i_tmask;
 
     initial begin
-        inv_req_i_valid <= 1'b0;
+        vtd_req_i_wnr <= 1'b0;
     end
 
 endinterface
