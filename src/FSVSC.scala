@@ -39,12 +39,11 @@ class VSCCfg extends Bundle {
 }
 
 class VSCEntry(val P: Param) extends Bundle {
-  val bot   = UInt(P.vpnBits.W)
-  val idx   = UInt(32.W)
-  val top   = UInt(32.W)
+  val idx   = UInt(22.W)
   val fsm   = UInt( 2.W)
-  val way   = UInt(P.vscWays.W)
   val vpn   = UInt(P.vpnBits.W)
+  val way   = UInt(P.vscWays.W)
+  val bot   = UInt(P.vpnBits.W)
 }
 
 
@@ -165,7 +164,13 @@ class VSC(val P: Param) extends Module {
   val s2_req_idx_q   = RegEnable(s1_req_idx_q, s1_req_q)
 
   val s2_req_idx_ram = s2_req_idx_q(P.vscBits.W)
-  val s2_req_idx     = ShL(s2_req_idx_q, 1) | !s2_req_min_q
+
+  val s2_req_idx     = BSL(Ext(s2_req_top_q, 40), uatc_i.tsl) |
+                              (s2_req_idx_q ## !s2_req_min_q)
+
+  // maximum 64 mb for the table, should be fine
+  val s2_req_idx_ext = Any(s2_req_idx(40 := 22)) ||
+                       Any(s2_req_idx(22 := 2) & uatc_i.tmask)
 
   val s2_rdata       = Pin(Vec(P.vscWays, new VMA(P)))
   val s2_hit_way     = Pin(Vec(P.vscWays, Bool()))
@@ -186,6 +191,9 @@ class VSC(val P: Param) extends Module {
   val s2_hit_inv     = s2_req &&  s2_hit_any &&  s2_req_inv
   val s2_hit_vlb     = s2_req &&  s2_hit_any && !s2_req_inv
   val s2_mis_vlb     = s2_req && !s2_hit_any && !s2_req_inv && Non(s2_hit_ttw)
+
+  val s2_mis_vlb_int = s2_mis_vlb && !s2_req_idx_ext
+  val s2_mis_vlb_ext = s2_mis_vlb &&  s2_req_idx_ext
 
   // forward decl
   val s3_mem_res     = Pin(Bool())
@@ -237,7 +245,6 @@ class VSC(val P: Param) extends Module {
   //
   // intf
 
-  val mem_req_ext = Pin(Bool())
   val mem_req_raw = Pin(Vec(P.ttwNum, Bool()))
   val mem_req_sel = PrL(mem_req_raw.U)
   val mem_res_sel = Dec(mem_res_pld.idx)
@@ -249,22 +256,21 @@ class VSC(val P: Param) extends Module {
     val sx_req_idx_q = RegEnable(vlb_req_i(i).bits.idx, s0_req_sel(i))
 
     val hit = s2_req_sel_q(i) && s2_hit_vlb
-    val set = s2_req_sel_q(i) && s2_mis_vlb
+    val set = s2_req_sel_q(i) && s2_mis_vlb_int
+    val ext = s2_req_sel_q(i) && s2_mis_vlb_ext
 
     val req = mem_req_sel (i) && mem_req
     val res = mem_res_sel (i) && mem_res
 
-    vsc_q(i).idx := RegEnable(s2_req_idx,       set)
-    vsc_q(i).top := RegEnable(s2_req_top_q,     set)
-    vsc_q(i).bot := RegEnable(s2_req_bot_q,     set)
-    vsc_q(i).way := RegEnable(s2_rpl_way,       set)
+    vsc_q(i).idx := RegEnable(s2_req_idx(22.W), set)
     vsc_q(i).vpn := RegEnable(s2_req_pld_q.vpn, set)
+    vsc_q(i).way := RegEnable(s2_rpl_way,       set)
+    vsc_q(i).bot := RegEnable(s2_req_bot_q,     set)
 
     // fsm
     val fsm_en  = Pin(Bool())
     val fsm_nxt = Pin(UInt(2.W))
 
-    val req_ext = mem_req_sel(i) && mem_req_ext
     val kill_q  = Pin(Bool())
     val kill    = Pin(Bool())
 
@@ -277,11 +283,9 @@ class VSC(val P: Param) extends Module {
         fsm_nxt := vsc_fsm_req
       }
       is (vsc_fsm_req) {
-        fsm_en  := mem_req_sel(i) || kill
-        fsm_nxt := req_ext ?? vsc_fsm_idle ::
-                   req     ?? vsc_fsm_res  ::
-                   kill    ?? vsc_fsm_idle ::
-                              vsc_fsm_req
+        fsm_en  := req || kill
+        fsm_nxt := req ?? vsc_fsm_res  ::
+                          vsc_fsm_idle
       }
       is (vsc_fsm_res) {
         fsm_en  := res
@@ -293,47 +297,42 @@ class VSC(val P: Param) extends Module {
     val fsm_is_req  = vsc_q(i).fsm === vsc_fsm_req
     val fsm_is_res  = vsc_q(i).fsm === vsc_fsm_res
 
-    val kill_raw = vlb_req_i(i).bits.kill(0) && fsm_is_busy
-    val kill_clr = req_ext || res
+    kill   := vlb_req_i(i).bits.kill(0) && !kill_q &&
+                 (fsm_is_req && req ||
+                  fsm_is_res)
 
-    kill_q := RegEnable(kill_raw && !kill_clr,
+    kill_q := RegEnable(kill && !res,
                         false.B,
-                        kill_raw ||  kill_clr)
-    kill   := kill_raw ||
-              kill_q
+                        kill ||  res)
 
     vsc_q(i).fsm   := RegEnable(fsm_nxt, vsc_fsm_idle, fsm_en)
 
     mem_req_raw(i) := fsm_is_req
 
     val rdy = Non(fsm_is_busy) &&
-                 !(s1_req_q && s1_req_sel_q(i)) &&
-                 !(s2_req_q && s2_req_sel_q(i))
+                !(s1_req_q && s1_req_sel_q(i)) &&
+                !(s2_req_q && s2_req_sel_q(i))
 
-    idle_o     (i) := rdy || kill
+    idle_o     (i) := rdy || kill_q
     s0_req_rdy (i) := rdy && rst_done && !inv_req
 
     s2_hit_ttw (i) := fsm_is_busy &&
                          (s2_req_bot_q === vsc_q(i).bot)
 
     // output
-    val req_ext_vld = req_ext && !kill
-    val res_vld     = res     && !kill
+    val res_vld = res && !kill_q
 
-    vlb_res_o(i).valid := hit || req_ext_vld || res_vld
-    vlb_res_o(i).bits  := OrM(Seq(hit,
-                                  req_ext_vld,
-                                  res_vld),
-                              Seq(s2_hit_mux,
-                                  VMA(P),
-                                  VMA(P,
-                                      mem_res_vma,
-                                      asid,
-                                      vsc_q(i).bot,
-                                      vsc_q(i).idx(P.pmtBits.W))))
+    vlb_res_o(i).valid := hit || ext || res_vld
+    vlb_res_o(i).bits  := hit ?? s2_hit_mux ::
+                          ext ?? VMA(P)     ::
+                                 VMA(P,
+                                     mem_res_vma,
+                                     asid,
+                                     vsc_q(i).bot,
+                                     vsc_q(i).idx(P.pmtBits.W))
 
     // allowed to be valid but with error
-    val err = req_ext_vld ||
+    val err = ext     ||
               res_vld && !mem_res_vma.vld ||
             ((res_vld ??  vsc_q(i).vpn      :: s2_req_pld_q.vpn) >
              (res_vld ??  mem_res_vma.bound :: s2_hit_mux.bound))
@@ -365,14 +364,9 @@ class VSC(val P: Param) extends Module {
   // output
 
   val mem_req_arr  = uatp_i(48.W) ## 0.U(6.W)
-  // idx must be larger than 12
-  val mem_req_idx  = mem_req_mux.idx(32 := 2) | BSL(Ext(mem_req_mux.top, 40), uatc_i.tsl)
+  val mem_req_idx  = mem_req_mux.idx(22 := 2)
 
-  // maximum 64 mb for the table, should be fine
-  mem_req_ext     := Any(mem_req_idx(40 := 20)) ||
-                     Any(mem_req_idx(20.W) & uatc_i.tmask)
-
-  mem_req_o.valid := Any(mem_req_raw) && !mem_req_ext
+  mem_req_o.valid := Any(mem_req_raw)
   mem_req_o.bits  := MemReq(P,
                             Enc(mem_req_sel),
                             mem_req_arr | mem_req_idx)

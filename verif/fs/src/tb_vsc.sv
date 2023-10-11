@@ -66,7 +66,7 @@ class tb_vsc extends tb_base;
         m_cfg_idx   =  6'd24;
         m_cfg_vsc   =  6'd40;
         m_cfg_top   =  6'd44;
-        m_cfg_tsl   =  6'd15;
+        m_cfg_tsl   =  6'd17;
         m_cfg_mmask = 32'hffffff;
         m_cfg_imask = 32'hffff;
         m_cfg_vmask =  5'hf;
