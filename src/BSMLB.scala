@@ -26,7 +26,12 @@ class MLBEntry(val P: Param) extends Bundle {
   val lvl  = UInt(3.W)
   val mpn  = UInt(P.mpnBits.W)
   val ppn  = UInt(P.ppnBits.W)
-  val attr = UInt(3.W)
+  val attr = UInt(4.W)
+
+  def r = attr(0)
+  def w = attr(1)
+  def a = attr(2)
+  def d = attr(3)
 
   def hit(m: UInt): Bool = {
     val arr = Pin(Vec(P.ptwLvl, Bool()))
@@ -182,10 +187,10 @@ class MLB(val P: Param) extends Module {
     Chk(s1_req_q  -> OHp(s1_hit_way, true.B))
 
     // perm fault
-    val s1_ptw_res_pf  = Non(s1_req_pld_q.wnr ?? s2_ptw_res_pld.attr(1) ::
-                                                 s2_ptw_res_pld.attr(0))
-    val s1_hit_res_pf  = Non(s1_req_pld_q.wnr ?? s1_hit_mux.attr(1) ::
-                                                 s1_hit_mux.attr(0))
+    val s1_ptw_res_pf  = Non(s2_ptw_res_pld.a && (s1_req_pld_q.wnr ?? (s2_ptw_res_pld.w && s2_ptw_res_pld.d) ::
+                                                                       s2_ptw_res_pld.r))
+    val s1_hit_res_pf  = Non(s1_hit_mux.a     && (s1_req_pld_q.wnr ?? (s1_hit_mux.w     && s1_hit_mux.d) ::
+                                                                       s1_hit_mux.r))
 
     val s1_ptw_res_pld = MLBRes(P,
                                 s2_ptw_rdy,

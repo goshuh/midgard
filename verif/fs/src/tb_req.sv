@@ -43,13 +43,14 @@ class tb_req extends tb_base;
     endfunction
 
     virtual function string show();
-        return $sformatf("req(vpn: %x (%x-%x), mpn: %x, idx: %x, vld: %x, err: %x)",
+        return $sformatf("req(vpn: %x (%x-%x), mpn: %x, idx: %x, vld: %x, err: %x, attr: %x)",
                           m_vpn,
                           m_res.base, m_res.bound,
                           m_mpn,
                           m_idx,
                           m_res.vld,
-                          m_res.err);
+                          m_res.err,
+                          m_res.attr);
     endfunction
 
 endclass

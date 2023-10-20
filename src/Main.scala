@@ -50,6 +50,9 @@ package frontside {
     val u_dlb = Module(new VLB(P, 2))
     val u_ttw = Module(new VSC(P))
 
+    val asid  = satp_i(44 :+ P.asidBits)
+    val sdid  = uatp_i(48 :+ P.sdidBits)
+
     // the tb doesn't ever need the ready
     u_ilb.vlb_req_i(0).valid := ilb_req_i(0).valid
     u_ilb.vlb_req_i(0).bits  := ilb_req_i(0).bits
@@ -60,12 +63,15 @@ package frontside {
     u_ilb.ttw_res_i          <> u_ttw.vlb_res_o(0)
     u_ilb.ttw_ext_i          := u_ttw.vlb_ext_o(0)
     u_ilb.vtd_req_i          := vtd_req_i
-    u_ilb.satp_i             := satp_i
-    u_ilb.uatp_i             := uatp_i
     u_ilb.uatc_i             := uatc_i
+    u_ilb.asid_i             := asid
+    u_ilb.sdid_i             := sdid
     u_ilb.kill_i             := ilb_kill_i
-    u_ilb.kill_asid_i        := satp_i(44 :+ P.asidBits)
-    u_ilb.kill_sdid_i        := uatp_i(48 :+ P.sdidBits)
+    u_ilb.kill_asid_i        := asid
+    u_ilb.kill_sdid_i        := sdid
+
+    u_ilb.vlb_res_o(0).ready := true.B
+    u_ilb.vlb_res_o(1).ready := true.B
 
     ilb_res_o(0).valid       := u_ilb.vlb_res_o(0).valid
     ilb_res_o(0).bits        := u_ilb.vlb_res_o(0).bits
@@ -81,12 +87,15 @@ package frontside {
     u_dlb.ttw_res_i          <> u_ttw.vlb_res_o(1)
     u_dlb.ttw_ext_i          := u_ttw.vlb_ext_o(1)
     u_dlb.vtd_req_i          := vtd_req_i
-    u_dlb.satp_i             := satp_i
-    u_dlb.uatp_i             := uatp_i
     u_dlb.uatc_i             := uatc_i
+    u_dlb.asid_i             := asid
+    u_dlb.sdid_i             := sdid
     u_dlb.kill_i             := dlb_kill_i
-    u_dlb.kill_asid_i        := satp_i(44 :+ P.asidBits)
-    u_dlb.kill_sdid_i        := uatp_i(48 :+ P.sdidBits)
+    u_dlb.kill_asid_i        := asid
+    u_dlb.kill_sdid_i        := sdid
+
+    u_dlb.vlb_res_o(0).ready := true.B
+    u_dlb.vlb_res_o(1).ready := true.B
 
     dlb_res_o(0).valid       := u_dlb.vlb_res_o(0).valid
     dlb_res_o(0).bits        := u_dlb.vlb_res_o(0).bits
@@ -99,6 +108,8 @@ package frontside {
     u_ttw.satp_i             := satp_i
     u_ttw.uatp_i             := uatp_i
     u_ttw.uatc_i             := uatc_i
+    u_ttw.asid_i             := asid
+    u_ttw.sdid_i             := sdid
 
     // for tb
     ilb_busy_o               := Non(u_ttw.idle_o(0))
@@ -144,7 +155,7 @@ object Main extends App {
 
     vtdSets = 1,
     vtdWays = 1,
-    dirBits = 1,
+    dirBits = 2,
 
     llcIdx  = 3,
 

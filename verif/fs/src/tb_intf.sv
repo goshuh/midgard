@@ -4,8 +4,8 @@ interface tb_ctl_intf (
 );
 
     bit            vtd_req_i_wnr;
-    bit [    58:0] vtd_req_i_mqn;
-    bit            vtd_req_i_vtd;
+    tb_base::mcn_t vtd_req_i_mcn;
+    bit [     1:0] vtd_req_i_vec;
 
     bit [    63:0] satp_i;
     bit [    63:0] uatp_i;
@@ -39,13 +39,13 @@ interface tb_vlb_intf (
     bit            vlb_res_o_bits_vld;
     bit            vlb_res_o_bits_err;
     tb_base::mpn_t vlb_res_o_bits_mpn;
-    bit [     3:0] vlb_res_o_bits_attr;
+    bit [     7:0] vlb_res_o_bits_attr;
     bit            vlb_ttw_o_valid;
     tb_base::vlb_t vlb_ttw_o_bits_idx;
     bit            vlb_ttw_o_bits_vld;
     bit            vlb_ttw_o_bits_err;
     tb_base::mpn_t vlb_ttw_o_bits_mpn;
-    bit [     3:0] vlb_ttw_o_bits_attr;
+    bit [     7:0] vlb_ttw_o_bits_attr;
     bit [     2:0] vlb_kill_i;
     bit            vlb_busy_o;
 

@@ -9,7 +9,6 @@ import  midgard.util._
 class MemReq(val P: Param) extends Bundle {
   val idx   = UInt(P.ttwIdx.W)
   val mcn   = UInt(P.mcnBits.W)
-  val vtd   = UInt(2.W)
 }
 
 class MemRes(val P: Param) extends Bundle {
@@ -17,20 +16,36 @@ class MemRes(val P: Param) extends Bundle {
   val data  = UInt(P.clBits.W)
 }
 
-class VSCVMA(val P: Param) extends Bundle {
-  // 16 bytes in size
-  val vld   = Bool()
-  val pad   = Opt (127 - P.attrBits - P.sdidBits - 2 * P.vpnBits)
-  val attr  = UInt(P.attrBits.W)
+class VSCTab(val P: Param) extends Bundle {
+  // 2 bytes in size
   val sdid  = UInt(P.sdidBits.W)
+  val attr  = UInt(4.W)
+
+  def v = attr(0)
+}
+
+class VSCVMA(val P: Param) extends Bundle {
+  // 64 bytes in size
+  val tab   = Vec (20, new VSCTab(P))
+  val ptr   = UInt(64.W)
+  val pad   = Opt (64 - P.vpnBits)
   val offs  = UInt(P.vpnBits.W)
+  val attr  = UInt(8.W)
+  val res   = Opt (56 - P.vpnBits)
   val bound = UInt(P.vpnBits.W)
+
+  def v = attr(0)
+  def u = attr(4)
+  def g = attr(5)
+  def z = attr(6)
+  def e = attr(7)
 }
 
 class VSCCfg extends Bundle {
   val idx   = UInt( 6.W)
   val vsc   = UInt( 6.W)
   val top   = UInt( 6.W)
+  val siz   = UInt( 6.W)
   val tsl   = UInt( 6.W)
 
   val mmask = UInt(32.W) // max 32 offs bits for the minimum vsc (2 mb minimum)
@@ -49,12 +64,11 @@ class VSCEntry(val P: Param) extends Bundle {
 
 
 object MemReq {
-  def apply(P: Param, i: UInt, m: UInt, v: UInt): MemReq = {
+  def apply(P: Param, i: UInt, m: UInt): MemReq = {
     val ret = Pin(new MemReq(P))
 
     ret.idx := i
     ret.mcn := m
-    ret.vtd := v
     ret
   }
 }
@@ -77,6 +91,8 @@ class VSC(val P: Param) extends Module {
   val satp_i    = IO(                          Input(UInt(64.W)))
   val uatp_i    = IO(                          Input(UInt(64.W)))
   val uatc_i    = IO(                          Input(new VSCCfg()))
+  val asid_i    = IO(                          Input(UInt(P.asidBits.W)))
+  val sdid_i    = IO(                          Input(UInt(P.sdidBits.W)))
 
   val idle_o    = IO(                         Output(Vec (P.ttwNum, Bool())))
 
@@ -96,10 +112,6 @@ class VSC(val P: Param) extends Module {
   val mem_req        = mem_req_o.fire
   val mem_res        = mem_res_i.fire
   val mem_res_pld    = mem_res_i.bits
-  val mem_res_vma    = Pin(new VSCVMA(P))
-
-  val asid           = satp_i(44 :+ P.asidBits)
-  val sdid           = uatp_i(48 :+ P.sdidBits)
 
 
   //
@@ -126,9 +138,9 @@ class VSC(val P: Param) extends Module {
   val s0_req_mmask   = Ext(BFL(uatc_i.mmask, s0_req_vsc_s), P.vaBits)
 
   val s0_req_min     = Non(s0_req_vsc_s)
-  val s0_req_idx     = vtd_req ?? vtd_req_pld.mqn(32.W) :: (s0_req_idx_s & ~s0_req_vsh_1 | s0_req_vsh_2)
-  val s0_req_bot     = vtd_req ?? 0.U                   :: (s0_req_va    & ~s0_req_mmask)(P.vaBits := 12)
-  val s0_req_top     = vtd_req ?? 0.U                   ::  s0_req_top_s
+  val s0_req_idx     = vtd_req ?? Ext(vtd_req_pld.mcn, 32) :: (s0_req_idx_s & ~s0_req_vsh_1 | s0_req_vsh_2)
+  val s0_req_bot     = vtd_req ?? 0.U                      :: (s0_req_va    & ~s0_req_mmask)(P.vaBits := 12)
+  val s0_req_top     = vtd_req ?? 0.U                      ::  s0_req_top_s
 
 
   //
@@ -171,20 +183,23 @@ class VSC(val P: Param) extends Module {
                               (s2_req_idx_q ## !s2_req_min_q)
 
   // maximum 64 mb for the table, should be fine
-  val s2_req_idx_ext = Any(s2_req_idx(40 := 22)) ||
-                       Any(s2_req_idx(22 := 2) & uatc_i.tmask)
+  val s2_req_idx_ext = Any(s2_req_idx(40 := 20)) ||
+                       Any(s2_req_idx(20.W) & uatc_i.tmask)
 
   val s2_rdata       = Pin(Vec(P.vscWays, new VMA(P)))
   val s2_hit_way     = Pin(Vec(P.vscWays, Bool()))
+  val s2_old_way     = Pin(Vec(P.vscWays, Bool()))
   val s2_inv_way     = Pin(Vec(P.vscWays, Bool()))
   val s2_hit_mux     = OrM(s2_hit_way, s2_rdata)
 
   Chk(s2_req_q -> OHp(s2_hit_way.U, true.B))
 
   val s2_hit_any     = Any(s2_hit_way)
+  val s2_old_any     = Any(s2_old_way)
   val s2_inv_any     = Any(s2_inv_way)
 
   val s2_rpl_way     = s2_inv_any ?? PrL(s2_inv_way.U) ::
+                       s2_old_any ?? PrL(s2_old_way.U) ::
                                      PRA(P.vscWays, s2_req)
 
   // actions
@@ -240,7 +255,8 @@ class VSC(val P: Param) extends Module {
 
     s2_rdata  (i) := ram.rdata(old.W).asTypeOf(new VMA(P))
 
-    s2_hit_way(i) := s2_req_q &&  s2_rdata(i).vld && s2_rdata(i).hit(s2_req_pld_q.vpn, asid)
+    s2_hit_way(i) := s2_req_q &&  s2_rdata(i).vld && s2_rdata(i).hit(s2_req_pld_q.vpn, asid_i, sdid_i)
+    s2_old_way(i) := s2_req_q &&  s2_rdata(i).vld && s2_rdata(i).old(                  asid_i, sdid_i)
     s2_inv_way(i) := s2_req_q && !s2_rdata(i).vld
   }
 
@@ -265,7 +281,7 @@ class VSC(val P: Param) extends Module {
     val req = mem_req_sel (i) && mem_req
     val res = mem_res_sel (i) && mem_res
 
-    vsc_q(i).idx := RegEnable(s2_req_idx(22.W), set)
+    vsc_q(i).idx := RegEnable(s2_req_idx(20.W), set)
     vsc_q(i).vpn := RegEnable(s2_req_pld_q.vpn, set)
     vsc_q(i).way := RegEnable(s2_rpl_way,       set)
     vsc_q(i).bot := RegEnable(s2_req_bot_q,     set)
@@ -328,17 +344,13 @@ class VSC(val P: Param) extends Module {
     vlb_res_o(i).valid := hit || ext || res_vld
     vlb_res_o(i).bits  := hit ?? s2_hit_mux ::
                           ext ?? VMA(P)     ::
-                                 VMA(P,
-                                     mem_res_vma,
-                                     asid,
-                                     vsc_q(i).bot,
-                                     vsc_q(i).idx(P.pmtBits.W))
+                                 s3_mem_res_vma
 
     // allowed to be valid but with error
     val err = ext     ||
-              res_vld && !mem_res_vma.vld ||
-            ((res_vld ??  vsc_q(i).vpn      :: s2_req_pld_q.vpn) >
-             (res_vld ??  mem_res_vma.bound :: s2_hit_mux.bound))
+              res_vld && !s3_mem_res ||
+            ((res_vld ??  vsc_q(i).vpn         :: s2_req_pld_q.vpn) >
+             (res_vld ??  s3_mem_res_vma.bound :: s2_hit_mux.bound))
 
     vlb_ext_o(i) := TTWExt(P,
                            sx_req_idx_q,
@@ -349,17 +361,31 @@ class VSC(val P: Param) extends Module {
   // big partial muxes
   val mem_req_mux = OrM(mem_req_sel, vsc_q)
   val mem_res_mux = OrM(mem_res_sel, vsc_q)
+  val mem_res_vma = mem_res_pld.data.asTypeOf(new VSCVMA(P))
 
-  mem_res_vma := OrM(Dec(mem_res_mux.idx(2.W)),
-                     Div(mem_res_pld.data, 128)).asTypeOf(new VSCVMA(P))
+  val mem_res_vma_hit  = mem_res_vma.tab.map(e => e.v && (e.sdid === sdid_i)).U
+  val mem_res_vma_attr = mem_res_vma.e ##
+                         mem_res_vma.z ##
+                         0.U(1.U)      ##
+                         mem_res_vma.u ##
+                         OrM(mem_res_vma_hit,
+                             mem_res_vma.tab.map(_.attr))
 
-  s3_mem_res     := mem_res && mem_res_vma.vld
+  // hit considering sdid
+  val mem_res_vma_vld  = mem_res_vma.v &&
+                            (mem_res_vma.g || Any(mem_res_vma_hit))
+
+  s3_mem_res     := mem_res && mem_res_vma_vld
   s3_mem_res_idx := mem_res_mux.idx(P.vscBits.W)
   s3_mem_res_way := mem_res_mux.way
   s3_mem_res_vma := VMA(P,
-                        mem_res_vma,
-                        asid,
+                        mem_res_vma_vld,
+                        asid_i,
+                        sdid_i,
                         mem_res_mux.bot,
+                        mem_res_vma.bound,
+                        mem_res_vma.offs,
+                        mem_res_vma.g ?? mem_res_vma.attr :: mem_res_vma_attr,
                         mem_res_mux.idx(P.pmtBits.W))
 
 
@@ -367,13 +393,12 @@ class VSC(val P: Param) extends Module {
   // output
 
   val mem_req_arr  = uatp_i(48.W) ## 0.U(6.W)
-  val mem_req_idx  = mem_req_mux.idx(22 := 2)
+  val mem_req_idx  = mem_req_mux.idx
 
   mem_req_o.valid := Any(mem_req_raw)
   mem_req_o.bits  := MemReq(P,
                             Enc(mem_req_sel),
-                            mem_req_arr | mem_req_idx,
-                            mem_req_mux.idx(2.W))
+                            mem_req_arr | mem_req_idx)
 
   mem_res_i.ready := Non(vtd_req)
 }

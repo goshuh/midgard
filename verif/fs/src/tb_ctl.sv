@@ -30,6 +30,7 @@ class tb_ctl extends tb_base;
             m_vif.uatc_i_mmask <= m_gen.m_cfg_mmask;
             m_vif.uatc_i_imask <= m_gen.m_cfg_imask;
             m_vif.uatc_i_vmask <= m_gen.m_cfg_vmask;
+            m_vif.uatc_i_tmask <= m_gen.m_cfg_tmask;
 
             m_env.add(1);
 

@@ -2,19 +2,19 @@
 
 
 typedef struct packed {
-    bit [     7:0] pad;
+    bit [     7:0] attr;
+    bit [     3:0] res;
     tb_base::vpn_t offs;
     tb_base::vpn_t bound;
     tb_base::vpn_t base;
-    bit [     3:0] attr;
 } bt4_pvma;
 
 
 typedef struct packed {
-    tb_base::ptr_t [                63:0] ptr;
+    tb_base::ptr_t [tb_base::btOrder  :0] ptr;
     bt4_pvma       [tb_base::btOrder-1:0] vma;
     bit            [                15:0] sdid;
-    bit            [                11:0] pad;
+    bit            [                11:0] res;
     bit            [                 2:0] num;
     bit                                   bot;
 } bt4_node;

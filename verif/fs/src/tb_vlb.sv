@@ -36,7 +36,7 @@ class tb_vlb extends tb_base;
             m_req[i] = null;
     endfunction
 
-    function void cmp(ref tb_req req, input vlb_t idx, bit vld, bit err, mpn_t mpn, bit [3:0] attr);
+    function void cmp(ref tb_req req, input vlb_t idx, bit vld, bit err, mpn_t mpn, bit [7:0] attr);
         if (req == null)
             return;
 

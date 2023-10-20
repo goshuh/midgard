@@ -81,7 +81,7 @@ module tb;
     wire        ilb_ttw_o_bits_vld;
     wire        ilb_ttw_o_bits_err;
     wire [51:0] ilb_ttw_o_bits_mpn;
-    wire [ 3:0] ilb_ttw_o_bits_attr;
+    wire [ 7:0] ilb_ttw_o_bits_attr;
     wire [ 2:0] ilb_kill_i;
     wire        ilb_busy_o;
 
@@ -90,7 +90,7 @@ module tb;
     wire        dlb_ttw_o_bits_vld;
     wire        dlb_ttw_o_bits_err;
     wire [51:0] dlb_ttw_o_bits_mpn;
-    wire [ 3:0] dlb_ttw_o_bits_attr;
+    wire [ 7:0] dlb_ttw_o_bits_attr;
     wire [ 2:0] dlb_kill_i;
     wire        dlb_busy_o;
 
@@ -153,9 +153,9 @@ module tb;
            .dlb_ttw_o_bits_attr   (dlb_ttw_o_bits_attr           ),
            .dlb_kill_i            (dlb_kill_i                    ),
            .dlb_busy_o            (dlb_busy_o                    ),
-           .vld_req_i_wnr         (m_ctl.vld_req_i_wnr           ),
-           .vld_req_i_mqn         (m_ctl.vld_req_i_mqn           ),
-           .vld_req_i_vtd         (m_ctl.vld_req_i_vtd           ),
+           .vtd_req_i_wnr         (m_ctl.vtd_req_i_wnr           ),
+           .vtd_req_i_mcn         (m_ctl.vtd_req_i_mcn           ),
+           .vtd_req_i_vec         (m_ctl.vtd_req_i_vec           ),
            .mem_req_o_ready       (m_mem.mem_req_o_ready         ),
            .mem_req_o_valid       (m_mem.mem_req_o_valid         ),
            .mem_req_o_bits_idx    (m_mem.mem_req_o_bits_idx      ),

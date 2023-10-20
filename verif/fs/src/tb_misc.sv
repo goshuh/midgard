@@ -1,7 +1,7 @@
 typedef struct {
     bit            vld;
     bit            err;
-    bit [     3:0] attr;
+    bit [     7:0] attr;
     tb_base::vpn_t base;
     tb_base::vpn_t bound;
     tb_base::vpn_t offs;

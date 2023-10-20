@@ -11,9 +11,8 @@ case class Param(
   paBits:   Int     = 48,
   clBits:   Int     = 512,
 
-  attrBits: Int     = 4,
   asidBits: Int     = 16,
-  sdidBits: Int     = 16,
+  sdidBits: Int     = 12,
 
   pmtBits:  Int,
 
@@ -51,10 +50,6 @@ case class Param(
 
   val clBytes    =  clBits / 8
   val clWid      =  log2Ceil(clBytes)
-
-  val vqnBits    =  vaBits - 2
-  val mqnBits    =  maBits - 2
-  val pqnBits    =  paBits - 2
 
   val vdnBits    =  vaBits - 3
   val mdnBits    =  maBits - 3

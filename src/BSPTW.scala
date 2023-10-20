@@ -19,18 +19,16 @@ class PTE(val P: Param) extends Bundle {
   val res  = Opt (54 - P.ppnBits)
   val ppn  = UInt(P.ppnBits.W)
   val rsw  = UInt(2.W)
-  val d    = Bool()
-  val a    = Bool()
-  val g    = Bool()
-  val u    = Bool()
-  val x    = Bool()
-  val w    = Bool()
-  val r    = Bool()
-  val v    = Bool()
+  val attr = UInt(8.W)
 
-  def b: Bool = {
-    r || w || x
-  }
+  def v = attr(0)
+  def r = attr(1)
+  def w = attr(2)
+  def x = attr(3)
+  def a = attr(6)
+  def d = attr(7)
+
+  def b = r || w || x
 }
 
 

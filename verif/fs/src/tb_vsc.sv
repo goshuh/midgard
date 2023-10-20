@@ -2,12 +2,18 @@
 
 
 typedef struct packed {
-    bit            vld;
-    bit [     2:0] pad;
-    bit [     3:0] attr;
-    bit [    15:0] sdid;
+    struct packed {
+        bit [11:0] sdid;
+        bit [ 3:0] attr;
+    } [19:0] tab;
+
+    bit [    63:0] ptr;
+    bit [    11:0] pad;
     tb_base::vpn_t offs;
+    bit [     7:0] attr;
+    bit [     3:0] res;
     tb_base::vpn_t bound;
+
 } vsc_pvma;
 
 
@@ -70,7 +76,7 @@ class tb_vsc extends tb_base;
         m_cfg_mmask = 32'hffffff;
         m_cfg_imask = 32'hffff;
         m_cfg_vmask =  5'hf;
-        m_cfg_tmask = 20'hfffff;
+        m_cfg_tmask = 20'h0;
 
         m_dis_old   = '{1, 100};
         m_dis_err   = '{10, 5, 100};
@@ -108,10 +114,7 @@ class tb_vsc extends tb_base;
     virtual function tb_vma gen_vma();
         tb_vma   vma;
         vsc_pvma raw;
-
-        bit [511:0] dat;
-        bit [ 36:0] off;
-        mcn_t       mcn;
+        mcn_t    mcn;
 
         do begin
             bit [ 63:0] bot;
@@ -119,9 +122,10 @@ class tb_vsc extends tb_base;
             bit [ 15:0] idx;
             bit [  3:0] vsc;
             bit [ 19:0] top;
+            bit [ 36:0] off;
 
            `rands(bot, with {
-                bot[63:49] == 3'b0;
+                bot[63:47] == 16'b0;
             });
 
             idx = bot[39:24];
@@ -137,17 +141,10 @@ class tb_vsc extends tb_base;
                 off = {top, idx & ~msk | (msk >> 1), 1'b1};
             end
 
-            mcn = {m_atp, 6'b0} + off[36:2];
-            dat =  m_l1d.get_b(mcn);
+            mcn = {m_atp, 6'b0} + off;
+            raw =  m_l1d.get_b(mcn);
 
-            case (off[1:0])
-            2'd0: raw = dat[127:  0];
-            2'd1: raw = dat[255:128];
-            2'd2: raw = dat[383:256];
-            2'd3: raw = dat[511:384];
-            endcase
-
-            if (raw.vld == 1'b0) begin
+            if (raw.attr[0] == 1'b0) begin
                 bit [63:0] msk = (64'h1 << ({4'b0, vsc} + 8'd24)) - 64'h1;
 
                `rands(ran);
@@ -157,7 +154,7 @@ class tb_vsc extends tb_base;
                 vma.base  = {bot[vaBits-1:44], vsc, idx & ~msk[39:24], 12'b0};
                 vma.bound =  vma.base + (ran[vaBits-1:12] & msk[vaBits-1:12]);
                 vma.offs  =  mcn;
-                vma.attr  =  4'b0;
+                vma.attr  = {2'h3, 1'h0, 5'h1f}; // no g-bit
 
                 break;
             end
@@ -165,20 +162,15 @@ class tb_vsc extends tb_base;
 
         m_vma[vma.base] = vma;
 
-        raw.vld   =  1'b1;
         raw.bound =  vma.bound;
         raw.offs  = {vpnBits{1'b0}};
         raw.attr  =  vma.attr;
-        raw.sdid  =  16'b0;
+        raw.ptr   =  64'b0;
 
-        case (off[1:0])
-        2'd0: dat[127:  0] = raw;
-        2'd1: dat[255:128] = raw;
-        2'd2: dat[383:256] = raw;
-        2'd3: dat[511:384] = raw;
-        endcase
+        raw.tab[0].sdid = 12'b0;
+        raw.tab[0].attr = vma.attr[3:0];
 
-        m_l1d.set_b(mcn, dat);
+        m_l1d.set_b(mcn, raw);
 
         return vma;
     endfunction

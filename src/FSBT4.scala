@@ -8,29 +8,27 @@ import  midgard.util._
 
 class BT4VMA(val P: Param) extends Bundle {
   // 21 bytes in size
-  val pad   = Opt (168 - P.attrBits - 3 * P.vpnBits)
+  val attr  = UInt(8.W)
+  val res   = Opt (160 - 3 * P.vpnBits)
   val offs  = UInt(P.vpnBits.W)
   val bound = UInt(P.vpnBits.W)
   val base  = UInt(P.vpnBits.W)
-  val attr  = UInt(P.attrBits.W)
 
-  def gt (v: UInt): Bool = {
+  def gt(v: UInt): Bool = {
     v > bound
   }
-  def lt (v: UInt): Bool = {
+  def lt(v: UInt): Bool = {
     v < base
   }
 }
 
 class BT4Node(val P: Param) extends Bundle {
   // 128 bytes in size
-  require(P.sdidBits <= 16)
-
   val ptr   = Vec (5, UInt(64.W))
   val vma   = Vec (4, new BT4VMA(P))
-  val sdid  = UInt(16.W)
-  val pad   = UInt(12.W)
-  val num   = UInt( 3.W)
+  val sdid  = UInt(P.sdidBits.W)
+  val res   = Opt (28 - P.sdidBits)
+  val num   = UInt(3.W)
   val bot   = Bool()
 }
 
@@ -51,6 +49,9 @@ class BT4(val P: Param) extends Module {
 
   val satp_i    = IO(                          Input(UInt(64.W)))
   val uatp_i    = IO(                          Input(UInt(64.W)))
+  val uatc_i    = IO(                          Input(new VSCCfg()))
+  val asid_i    = IO(                          Input(UInt(P.asidBits.W)))
+  val sdid_i    = IO(                          Input(UInt(P.sdidBits.W)))
 
   val idle_o    = IO(                         Output(Bool()))
 
@@ -67,9 +68,6 @@ class BT4(val P: Param) extends Module {
 
   val mem_res       = mem_res_i.fire
   val mem_res_pld   = mem_res_i.bits
-
-  val asid          = satp_i(44 :+ P.asidBits)
-  val sdid          = uatp_i(48 :+ P.sdidBits)
 
 
   //
@@ -257,9 +255,13 @@ class BT4(val P: Param) extends Module {
   for (i <- 0 until P.ttwNum) {
     vlb_res_o(i).valid := ptw_done && ptw_req_sel_q(i) && !ptw_kill
     vlb_res_o(i).bits  := VMA(P,
-                              vlb_res_vma,
-                              asid,
-                              sdid,
+                              ptw_succ,
+                              asid_i,
+                              sdid_i,
+                              vlb_res_vma.base,
+                              vlb_res_vma.bound,
+                              vlb_res_vma.offs,
+                              vlb_res_vma.attr,
                               ptw_req_mcn_q(P.pmtBits.W))
 
     vlb_ext_o(i)  := TTWExt(P,
@@ -271,8 +273,7 @@ class BT4(val P: Param) extends Module {
   mem_req_o.valid := mem_fsm_is_req
   mem_req_o.bits  := MemReq(P,
                             0.U,
-                            ptw_req_mcn_q,
-                            0.U)
+                            ptw_req_mcn_q)
 
   mem_res_i.ready := mem_fsm_is_dly
 
