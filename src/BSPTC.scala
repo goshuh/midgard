@@ -149,7 +149,7 @@ class PTC(val P: Param) extends Module {
     }
 
     // data
-    val ram = Module(new SPRAM(log2Ceil(P.ptcWays), P.clBits, P.clBytes))
+    val ram = Module(new SPRAM(log2Ceil(P.ptcWays), P.clBits, 1))
 
     val ram_ren   = s0_req_r
     val ram_raddr = s0_hit_idx
@@ -163,7 +163,7 @@ class PTC(val P: Param) extends Module {
     ram.wnr      := ram_wen
     ram.addr     := ram_wen ?? ram_waddr :: ram_raddr
     ram.wdata    := ram_wdata
-    ram.wstrb    := Rep(true.B, P.clBytes)
+    ram.wstrb    := 1.U(1.W)
 
 
     //

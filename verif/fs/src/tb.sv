@@ -175,38 +175,15 @@ module tb;
            .uatc_i_vmask          (m_ctl.uatc_i_vmask            ),
            .uatc_i_tmask          (m_ctl.uatc_i_tmask            ));
 
-    // special
-    reg  ilb_kill_q;
-    reg  jlb_kill_q;
+    assign ilb_kill_i = {{2{m_ilb.vlb_kill_i[1] &
+                            m_jlb.vlb_kill_i[1]}},
+                            m_ilb.vlb_kill_i[0] |
+                            m_jlb.vlb_kill_i[0]};
 
-    always_ff @(posedge clock or posedge reset)
-        if (reset)
-            ilb_kill_q <= 1'b0;
-        else if (m_ilb.vlb_kill_i[1] | ilb_kill_i[1])
-            ilb_kill_q <= m_ilb.vlb_kill_i[1] & ~ilb_kill_i[1];
-
-    always_ff @(posedge clock or posedge reset)
-        if (reset)
-            jlb_kill_q <= 1'b0;
-        else if (m_jlb.vlb_kill_i[1] | ilb_kill_i[1])
-            jlb_kill_q <= m_jlb.vlb_kill_i[1] & ~ilb_kill_i[1];
-
-    always_ff @(posedge clock) begin
-        m_ilb.vlb_req_i_valid_q    <= m_ilb.vlb_req_i_valid;
-        m_ilb.vlb_req_i_bits_idx_q <= m_ilb.vlb_req_i_bits_idx;
-        m_jlb.vlb_req_i_valid_q    <= m_jlb.vlb_req_i_valid;
-        m_jlb.vlb_req_i_bits_idx_q <= m_jlb.vlb_req_i_bits_idx;
-    end
-
-    assign ilb_kill_i = {{2{(m_ilb.vlb_kill_i[1] | ilb_kill_q) &
-                            (m_jlb.vlb_kill_i[1] | jlb_kill_q)}},
-                             m_ilb.vlb_kill_i[0] |
-                             m_jlb.vlb_kill_i[0]};
-
-    assign dlb_kill_i = {{2{ m_dlb.vlb_kill_i[1] |
-                             m_elb.vlb_kill_i[1]}},
-                             m_dlb.vlb_kill_i[0] |
-                             m_elb.vlb_kill_i[0]};
+    assign dlb_kill_i = {{2{m_dlb.vlb_kill_i[1] |
+                            m_elb.vlb_kill_i[1]}},
+                            m_dlb.vlb_kill_i[0] |
+                            m_elb.vlb_kill_i[0]};
 
     assign m_ilb.vlb_busy_o          = ilb_busy_o      & ~ilb_ttw_o_bits_idx[5];
     assign m_ilb.vlb_ttw_o_valid     = ilb_ttw_o_valid & ~ilb_ttw_o_bits_idx[5];
@@ -240,11 +217,6 @@ module tb;
     assign m_elb.vlb_ttw_o_bits_mpn  = dlb_ttw_o_bits_mpn;
     assign m_elb.vlb_ttw_o_bits_attr = dlb_ttw_o_bits_attr;
 
-    assign m_dlb.vlb_req_i_valid_q    = 1'b0;
-    assign m_dlb.vlb_req_i_bits_idx_q = 6'b0;
-
-    assign m_elb.vlb_req_i_valid_q    = 1'b0;
-    assign m_elb.vlb_req_i_bits_idx_q = 6'b0;
 
     //
     // err delaying

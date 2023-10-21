@@ -19,11 +19,9 @@ package frontside {
     // --------------------------
     // io
 
-    val Q = P.copy(tlbEn = true)
-
-    val ilb_req_i  = IO(Vec(2, Flipped(    Valid(new VLBReq(Q)))))
-    val ilb_res_o  = IO(Vec(2,             Valid(new VLBRes(Q))))
-    val ilb_ttw_o  = IO(                   Valid(new VLBRes(Q)))
+    val ilb_req_i  = IO(Vec(2, Flipped(    Valid(new VLBReq(P)))))
+    val ilb_res_o  = IO(Vec(2,             Valid(new VLBRes(P))))
+    val ilb_ttw_o  = IO(                   Valid(new VLBRes(P)))
     val ilb_kill_i = IO(                   Input(UInt(3.W)))
     val ilb_busy_o = IO(                  Output(Bool()))
 
@@ -46,7 +44,7 @@ package frontside {
     // --------------------------
     // inst
 
-    val u_ilb = Module(new VLB(Q, 2))
+    val u_ilb = Module(new VLB(P, 2))
     val u_dlb = Module(new VLB(P, 2))
     val u_ttw = Module(new VSC(P))
 
@@ -141,7 +139,6 @@ object Main extends App {
 
     pmtBits = 16,
 
-    tlbEn   = false,
     tlbWays = 32,
 
     vlbIdx  = 6,

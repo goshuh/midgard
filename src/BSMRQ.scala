@@ -306,7 +306,7 @@ class MRQ(val P: Param) extends Module {
                      mrq_pre_req_err_fwd ?? mem_fsm_res ::
                                             mem_fsm_req)
 
-  val ram = Module(new SPRAM(log2Ceil(P.mrqIdx), P.clBits, P.clBytes))
+  val ram = Module(new SPRAM(log2Ceil(P.mrqIdx), P.clBits, 1))
 
   val ram_ren   = mrq_ram_req && mrq_pre_req_mux.wnr
   val ram_raddr = Enc(mrq_pre_req_sel)
@@ -320,7 +320,7 @@ class MRQ(val P: Param) extends Module {
   ram.wnr      := ram_wen
   ram.addr     := ram_wen ?? ram_waddr :: ram_raddr
   ram.wdata    := ram_wdata
-  ram.wstrb    := Rep(true.B, P.clBytes)
+  ram.wstrb    := 1.U(1.W)
 
 
   //

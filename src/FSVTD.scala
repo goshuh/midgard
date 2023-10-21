@@ -104,7 +104,7 @@ class VTD(val P: Param) extends Module {
   val s1_res_pld   = VTDReq(P,
                             false.B,
                             s1_rpl_mqn,
-                            s1_hit_mux.vec)
+                            s1_hit_mux.vec | EnQ(s1_clr, s1_req_pld_q.vec))
 
   val s2_res_q     = RegNext  (s1_res,     false.B)
   val s2_res_pld_q = RegEnable(s1_res_pld, s1_res)
@@ -121,10 +121,7 @@ class VTD(val P: Param) extends Module {
                      rst_pend)
 
   for (i <- 0 until P.vtdWays) {
-    val old = new VTDEntry(P).getWidth
-    val wid = 8 * (old + 7) / 8
-
-    val ram = Module(new SPRAM(P.vtdBits, wid, wid / 8))
+    val ram = Module(new SPRAM(P.vtdBits, new VTDEntry(P).getWidth, 1))
 
     val ram_ren    = s0_req
     val ram_raddr  = s0_idx
@@ -138,9 +135,9 @@ class VTD(val P: Param) extends Module {
     ram.wnr       := ram_wen
     ram.addr      := ram_wen ?? ram_waddr :: ram_raddr
     ram.wdata     := ram_wdata.asUInt
-    ram.wstrb     := Rep(true.B, wid / 8)
+    ram.wstrb     := 1.U(1.W)
 
-    s1_rdata  (i) := ram.rdata(old.W).asTypeOf(new VTDEntry(P))
+    s1_rdata  (i) := ram.rdata.asTypeOf(new VTDEntry(P))
 
     s1_hit_way(i) := s1_req_q &&  s1_rdata(i).vld && (s1_rdata(i).tag === s1_tag)
     s1_inv_way(i) := s1_req_q && !s1_rdata(i).vld

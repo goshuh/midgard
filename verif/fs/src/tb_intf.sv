@@ -33,7 +33,7 @@ interface tb_vlb_intf (
     bit            vlb_req_i_valid;
     tb_base::vlb_t vlb_req_i_bits_idx;
     tb_base::vpn_t vlb_req_i_bits_vpn;
-    bit [     2:0] vlb_req_i_bits_kill;
+    bit [     1:0] vlb_req_i_bits_kill;
     bit            vlb_res_o_valid;
     tb_base::vlb_t vlb_res_o_bits_idx;
     bit            vlb_res_o_bits_vld;
@@ -48,10 +48,6 @@ interface tb_vlb_intf (
     bit [     7:0] vlb_ttw_o_bits_attr;
     bit [     2:0] vlb_kill_i;
     bit            vlb_busy_o;
-
-    // tb usage
-    bit            vlb_req_i_valid_q;
-    tb_base::vlb_t vlb_req_i_bits_idx_q;
 
     initial begin
         vlb_req_i_valid <= 1'b0;

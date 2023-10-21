@@ -48,7 +48,7 @@ class tb_env extends tb_base;
         m_uvc_elb = new(elb, "elb", vlbWays / 2, vlbWays);
         m_uvc_l1d = new(mem);
 
-        m_stg     = 0;;
+        m_stg     = 0;
     endfunction
 
     task blk(input int v);

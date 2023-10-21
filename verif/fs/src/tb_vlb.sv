@@ -81,7 +81,7 @@ class tb_vlb extends tb_base;
             vlb_t     idx;
             vlb_t     ret [$];
             bit       sel;
-            bit [2:0] kil;
+            bit [1:0] kil;
 
             m_vif.vlb_kill_i <= 3'b0;
 
@@ -178,10 +178,8 @@ class tb_vlb extends tb_base;
             end
 
             // kill the issued req once it is already performing ttw
-            kil[1] = m_vif.vlb_req_i_valid      && m_vif.vlb_busy_o &&
-                    (m_vif.vlb_req_i_bits_idx   == m_vif.vlb_ttw_o_bits_idx);
-            kil[2] = m_vif.vlb_req_i_valid_q    && m_vif.vlb_busy_o &&
-                    (m_vif.vlb_req_i_bits_idx_q == m_vif.vlb_ttw_o_bits_idx);
+            kil[1] = m_vif.vlb_req_i_valid    && m_vif.vlb_busy_o &&
+                    (m_vif.vlb_req_i_bits_idx == m_vif.vlb_ttw_o_bits_idx);
 
            `rands(sel, with { sel dist {
                 1'b0 := m_dis_kil[0],

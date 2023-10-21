@@ -231,10 +231,7 @@ class VSC(val P: Param) extends Module {
                      rst_pend)
 
   for (i <- 0 until P.vscWays) {
-    val old = new VMA(P).getWidth
-    val wid = 8 * (old + 7) / 8
-
-    val ram = Module(new SPRAM(P.vscBits, wid, wid / 8))
+    val ram = Module(new SPRAM(P.vscBits, new VMA(P).getWidth, 1))
 
     val s2_inv_we  = s2_hit_inv && s2_hit_way    (i)
     val s3_res_we  = s3_mem_res && s3_mem_res_way(i)
@@ -251,9 +248,9 @@ class VSC(val P: Param) extends Module {
     ram.wnr       := ram_wen
     ram.addr      := ram_wen ?? ram_waddr :: ram_raddr
     ram.wdata     := ram_wdata.asUInt
-    ram.wstrb     := Rep(true.B, wid / 8)
+    ram.wstrb     := 1.U(1.W)
 
-    s2_rdata  (i) := ram.rdata(old.W).asTypeOf(new VMA(P))
+    s2_rdata  (i) := ram.rdata.asTypeOf(new VMA(P))
 
     s2_hit_way(i) := s2_req_q &&  s2_rdata(i).vld && s2_rdata(i).hit(s2_req_pld_q.vpn, asid_i, sdid_i)
     s2_old_way(i) := s2_req_q &&  s2_rdata(i).vld && s2_rdata(i).old(                  asid_i, sdid_i)

@@ -16,7 +16,6 @@ case class Param(
 
   pmtBits:  Int,
 
-  tlbEn:    Boolean,
   tlbWays:  Int,
 
   vlbIdx:   Int,
