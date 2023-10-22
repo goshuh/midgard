@@ -66,10 +66,10 @@ case class Param(
   val ptwTop     =  mpnBits - (ptwLvl - 1)  * 9
 
   val vscBits    =  log2Ceil(vscSets)
-  val vscTagBits =  mdnBits - vscBits
+  val vscTagBits =  mcnBits - vscBits
 
   val vtdBits    =  log2Ceil(vtdSets)
-  val vtdTagBits =  mdnBits - vtdBits
+  val vtdTagBits =  mcnBits - vtdBits
 
   val ttwIdx     =  log2Ceil(ttwNum)
   val mlbIdx     =  log2Ceil(mlbWays)

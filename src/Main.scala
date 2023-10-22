@@ -31,7 +31,7 @@ package frontside {
     val dlb_kill_i = IO(                   Input(UInt(3.W)))
     val dlb_busy_o = IO(                  Output(Bool()))
 
-    val vtd_req_i  = IO(                   Input(new VTDReq(P)))
+    val vtd_req_i  = IO(       Flipped(Decoupled(new VTDReq(P))))
 
     val mem_req_o  = IO(               Decoupled(new MemReq(P)))
     val mem_res_i  = IO(       Flipped(Decoupled(new MemRes(P))))
@@ -60,7 +60,7 @@ package frontside {
     u_ilb.ttw_req_o          <> u_ttw.vlb_req_i(0)
     u_ilb.ttw_res_i          <> u_ttw.vlb_res_o(0)
     u_ilb.ttw_ext_i          := u_ttw.vlb_ext_o(0)
-    u_ilb.vtd_req_i          := vtd_req_i
+    u_ilb.vtd_req_i          := u_ttw.vtd_req_o
     u_ilb.uatc_i             := uatc_i
     u_ilb.asid_i             := asid
     u_ilb.sdid_i             := sdid
@@ -84,7 +84,7 @@ package frontside {
     u_dlb.ttw_req_o          <> u_ttw.vlb_req_i(1)
     u_dlb.ttw_res_i          <> u_ttw.vlb_res_o(1)
     u_dlb.ttw_ext_i          := u_ttw.vlb_ext_o(1)
-    u_dlb.vtd_req_i          := vtd_req_i
+    u_dlb.vtd_req_i          := u_ttw.vtd_req_o
     u_dlb.uatc_i             := uatc_i
     u_dlb.asid_i             := asid
     u_dlb.sdid_i             := sdid
@@ -100,7 +100,7 @@ package frontside {
     dlb_res_o(1).valid       := u_dlb.vlb_res_o(1).valid
     dlb_res_o(1).bits        := u_dlb.vlb_res_o(1).bits
 
-    u_ttw.vtd_req_i          := vtd_req_i
+    u_ttw.vtd_req_i          <> vtd_req_i
     u_ttw.mem_req_o          <> mem_req_o
     u_ttw.mem_res_i          <> mem_res_i
     u_ttw.satp_i             := satp_i

@@ -86,7 +86,9 @@ class VSC(val P: Param) extends Module {
   val mem_req_o = IO(                      Decoupled(new MemReq(P)))
   val mem_res_i = IO(              Flipped(Decoupled(new MemRes(P))))
 
-  val vtd_req_i = IO(                          Input(new VTDReq(P)))
+  val vtd_req_i = IO(              Flipped(Decoupled(new VTDReq(P))))
+  val vtd_req_o = IO(                         Output(new VTDReq(P)))
+  val vtd_res_o = IO(                         Output(Bool()))
 
   val satp_i    = IO(                          Input(UInt(64.W)))
   val uatp_i    = IO(                          Input(UInt(64.W)))
@@ -106,8 +108,8 @@ class VSC(val P: Param) extends Module {
       vsc_fsm_res  ::
       vsc_fsm_null) = Enum(4)
 
-  val vtd_req        = vtd_req_i.wnr
-  val vtd_req_pld    = vtd_req_i
+  val vtd_req        = vtd_req_i.fire && vtd_req_i.bits.wnr
+  val vtd_req_pld    = vtd_req_i.bits
 
   val mem_req        = mem_req_o.fire
   val mem_res        = mem_res_i.fire
@@ -152,7 +154,6 @@ class VSC(val P: Param) extends Module {
 
   val s1_req_inv     = Non(s1_req_sel_q)
   val s1_req         = s1_req_q && (s1_req_inv || Non(s1_req_sel_q & vlb_req_i.map(_.bits.kill(0)).U))
-  val s1_req_vlb     = s1_req   && !s1_req_inv
 
   val s1_req_min_q   = RegEnable(s0_req_min,   s0_req)
   val s1_req_idx_q   = RegEnable(s0_req_idx,   s0_req)
@@ -236,7 +237,7 @@ class VSC(val P: Param) extends Module {
     val s2_inv_we  = s2_hit_inv && s2_hit_way    (i)
     val s3_res_we  = s3_mem_res && s3_mem_res_way(i)
 
-    val ram_ren    = s1_req_vlb
+    val ram_ren    = s1_req_q
     val ram_raddr  = s1_req_idx_ram
 
     val ram_wen    = rst_pend || s2_inv_we || s3_res_we
@@ -391,6 +392,14 @@ class VSC(val P: Param) extends Module {
 
   val mem_req_arr  = uatp_i(48.W) ## 0.U(6.W)
   val mem_req_idx  = mem_req_mux.idx
+
+  vtd_req_i.ready := Non(s1_req_q && s1_req_inv)
+  vtd_req_o       := VTDReq(P,
+                            vtd_req,
+                            vtd_req_pld.mcn,
+                            vtd_req_pld.vec)
+
+  vtd_res_o       := s2_hit_inv
 
   mem_req_o.valid := Any(mem_req_raw)
   mem_req_o.bits  := MemReq(P,
