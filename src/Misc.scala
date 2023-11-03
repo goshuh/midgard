@@ -347,6 +347,22 @@ package object util {
     }
   }
 
+  class SPXPM(a: Int, d: Int, f: String) extends ExtModule(Map("A" -> a,
+                                                               "D" -> d,
+                                                               "F" -> f)) {
+    override def desiredName = s"SPXPM___${a}_${d}_${f}"
+
+    val clk   = IO(Input (Clock()))
+    val rst   = IO(Input (Reset()))
+
+    val en    = IO(Input (Bool()))
+    val wnr   = IO(Input (Bool()))
+    val addr  = IO(Input (UInt(a.W)))
+
+    val rdata = IO(Output(UInt(d.W)))
+    val wdata = IO(Input (UInt(d.W)))
+  }
+
   class SPRAM(a: Int, d: Int, s: Int) extends ExtModule(Map("A" -> a,
                                                             "D" -> d,
                                                             "S" -> s)) {
