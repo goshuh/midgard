@@ -356,11 +356,8 @@ package object util {
     val rst   = IO(Input (Reset()))
 
     val en    = IO(Input (Bool()))
-    val wnr   = IO(Input (Bool()))
     val addr  = IO(Input (UInt(a.W)))
-
-    val rdata = IO(Output(UInt(d.W)))
-    val wdata = IO(Input (UInt(d.W)))
+    val data  = IO(Output(UInt(d.W)))
   }
 
   class SPRAM(a: Int, d: Int, s: Int) extends ExtModule(Map("A" -> a,
