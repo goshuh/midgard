@@ -24,7 +24,7 @@ class VLBRes(val P: Param) extends Bundle {
   def x = attr(3)
   def u = attr(4)
   def g = attr(5)
-  def z = attr(6)
+  def p = attr(6)
   def e = attr(7)
 }
 
@@ -37,7 +37,7 @@ class TTWExt(val P: Param) extends Bundle {
 class VMA(val P: Param) extends Bundle {
   val vld   = Bool()
   val asid  = UInt(P.asidBits.W)
-  val sdid  = UInt(P.sdidBits.W)
+  val csid  = UInt(P.csidBits.W)
   val base  = UInt(P.vpnBits.W)
   val bound = UInt(P.vpnBits.W)
   val offs  = UInt(P.vpnBits.W)
@@ -52,20 +52,20 @@ class VMA(val P: Param) extends Bundle {
   def lt (v: UInt): Bool = {
     vld && (v < base)
   }
-  def hit(v: UInt, a: UInt, s: UInt): Bool = {
+  def hit(v: UInt, a: UInt, c: UInt): Bool = {
     if (P.vscEn)
       vld &&
          (v === base) &&
          (a === asid) &&
-        ((s === sdid) || g)
+        ((c === csid) || g)
     else
       vld && !gt(v) && !lt(v) &&
          (a === asid)
   }
-  def old(a: UInt, s: UInt): Bool = {
+  def old(a: UInt, c: UInt): Bool = {
     vld &&
       ((a =/= asid) ||
-       (s =/= sdid))
+       (c =/= csid) && !g)
   }
   def err(v: UInt): Bool = {
     if (P.vscEn)
@@ -73,20 +73,20 @@ class VMA(val P: Param) extends Bundle {
     else
       false.B
   }
-  def clr(k: UInt, a: UInt, s: UInt, d: VTDReq): Bool = {
+  def clr(k: UInt, a: UInt, c: UInt, d: VTDReq): Bool = {
     val p = d.mcn(P.pmtBits.W)
 
     vld &&
       ((a === asid) &&
-      ((s === sdid) || g) && k(1) || k(2) ||
-       (p === pmt ) && d.wnr)
+      ((c === csid) || g) && k(1) || k(2) ||
+       (p === pmt ) && d.cmd(1))
   }
 }
 
 class VMP(val P: Param) extends Bundle {
   val vld   = Bool()
   val asid  = UInt(P.asidBits.W)
-  val sdid  = UInt(P.sdidBits.W)
+  val csid  = UInt(P.csidBits.W)
   val vpn   = UInt(P.vpnBits.W)
   val mpn   = UInt(P.mpnBits.W)
   val attr  = UInt(8.W)
@@ -94,24 +94,24 @@ class VMP(val P: Param) extends Bundle {
 
   def g = attr(5)
 
-  def hit(v: UInt, a: UInt, s: UInt): Bool = {
+  def hit(v: UInt, a: UInt, c: UInt): Bool = {
     vld &&
        (v === vpn ) &&
        (a === asid) &&
-      ((s === sdid) || g)
+      ((c === csid) || g)
   }
-  def old(a: UInt, s: UInt): Bool = {
+  def old(a: UInt, c: UInt): Bool = {
     vld &&
       ((a =/= asid) ||
-       (s =/= sdid))
+       (c =/= csid))
   }
-  def clr(k: UInt, a: UInt, s: UInt, d: VTDReq): Bool = {
+  def clr(k: UInt, a: UInt, c: UInt, d: VTDReq): Bool = {
     val p = d.mcn(P.pmtBits.W)
 
     vld &&
       ((a === asid) &&
-      ((s === sdid) || g) && k(1) || k(2) ||
-       (p === pmt ) && d.wnr)
+      ((c === csid) || g) && k(1) || k(2) ||
+       (p === pmt ) && d.cmd(1))
   }
 }
 
@@ -157,7 +157,7 @@ object VMA {
 
     ret.vld   := false.B
     ret.asid  := DontCare
-    ret.sdid  := DontCare
+    ret.csid  := DontCare
     ret.base  := DontCare
     ret.bound := DontCare
     ret.offs  := DontCare
@@ -170,7 +170,7 @@ object VMA {
 
     ret.vld   := v
     ret.asid  := a
-    ret.sdid  := s
+    ret.csid  := s
     ret.base  := b
     ret.bound := c
     ret.offs  := o
@@ -181,12 +181,12 @@ object VMA {
 }
 
 object VMP {
-  def apply(P: Param, a: UInt, s: UInt, v: UInt, m: UInt, t: UInt, p: UInt): VMP = {
+  def apply(P: Param, a: UInt, c: UInt, v: UInt, m: UInt, t: UInt, p: UInt): VMP = {
     val ret = Pin(new VMP(P))
 
     ret.vld   := true.B
     ret.asid  := a
-    ret.sdid  := s
+    ret.csid  := c
     ret.vpn   := v
     ret.mpn   := m
     ret.attr  := t
@@ -213,14 +213,14 @@ class VLB(val P: Param, N: Int) extends Module {
 
   val uatc_i      = IO(                   Input(new VSCCfg()))
   val asid_i      = IO(                   Input(UInt(P.asidBits.W)))
-  val sdid_i      = IO(                   Input(UInt(P.sdidBits.W)))
+  val csid_i      = IO(                   Input(UInt(P.csidBits.W)))
 
   // 0: kill the inflight ttw
   // 1: kill vlb entries with matching asid/sdid
   // 2: kill all vlb entries
   val kill_i      = IO(                   Input(UInt(3.W)))
   val kill_asid_i = IO(                   Input(UInt(P.asidBits.W)))
-  val kill_sdid_i = IO(                   Input(UInt(P.sdidBits.W)))
+  val kill_csid_i = IO(                   Input(UInt(P.csidBits.W)))
 
 
   // ---------------------------
@@ -260,20 +260,20 @@ class VLB(val P: Param, N: Int) extends Module {
   for (i <- 0 until N) {
     val sp_hit_way = tlb_q.map(_.hit(sp_req_vpn(i),
                                      asid_i,
-                                     sdid_i)).U
+                                     csid_i)).U
     val sp_hit_any = Any(sp_hit_way)
 
     // also consider the case of refilling tlb
     val sp_ttw_hit = sp_ttw_res &&
                      sp_ttw_res_pld.hit(sp_req_vpn(i),
                                         asid_i,
-                                        sdid_i)
+                                        csid_i)
 
     sp_hit(i) := sp_req(i) && !sp_hit_err(i) && (sp_hit_any || sp_ttw_hit)
 
     sp_hit_mux(i) := sp_ttw_hit ?? VMP(P,
                                        sp_ttw_res_pld.asid,
-                                       sp_ttw_res_pld.sdid,
+                                       sp_ttw_res_pld.csid,
                                        sp_req_vpn(i),
                                        sp_ttw_res_pld.mpn,
                                        sp_ttw_res_pld.attr,
@@ -284,7 +284,7 @@ class VLB(val P: Param, N: Int) extends Module {
   }
 
   val sp_inv_way = tlb_q.map(e => !e.vld).U
-  val sp_old_way = tlb_q.map(e =>  e.old(asid_i, sdid_i)).U
+  val sp_old_way = tlb_q.map(e =>  e.old(asid_i, csid_i)).U
   val sp_rpl_way = Any(sp_inv_way) ?? PrL(sp_inv_way) ::
                    Any(sp_old_way) ?? PrL(sp_old_way) ::
                                       PRA(P.tlbWays, sp_ttw_res)
@@ -293,7 +293,7 @@ class VLB(val P: Param, N: Int) extends Module {
     val set = sp_ttw_res && sp_rpl_way(i)
     val clr = tlb_q(i).clr(kill_i,
                            kill_asid_i,
-                           kill_sdid_i,
+                           kill_csid_i,
                            vtd_req)
 
     tlb_q(i)     := RegEnable(sp_ttw_res_pld, set)
@@ -357,7 +357,7 @@ class VLB(val P: Param, N: Int) extends Module {
   // hit the refilling one
   val s0_ttw_hit = s0_req     &&
                    s2_ttw_res &&
-                   s2_ttw_res_pld.hit(s0_req_vpn_vsc, asid_i, sdid_i)
+                   s2_ttw_res_pld.hit(s0_req_vpn_vsc, asid_i, csid_i)
   val s0_ttw_err = s0_req     &&
                    s2_ttw_res &&
                    s2_ttw_res_pld.err(s0_req_vpn)
@@ -371,11 +371,11 @@ class VLB(val P: Param, N: Int) extends Module {
 
     val hit = vlb_q(i).hit(s0_req_vpn_vsc,
                            asid_i,
-                           sdid_i)
+                           csid_i)
     val err = vlb_q(i).err(s0_req_vpn)
     val clr = vlb_q(i).clr(kill_i,
                            kill_asid_i,
-                           kill_sdid_i,
+                           kill_csid_i,
                            vtd_req)
 
     val vld = sx_qual && !set && !clr
@@ -389,7 +389,7 @@ class VLB(val P: Param, N: Int) extends Module {
   }
 
   val s2_inv_way = vlb_q.map(e => !e.vld).U
-  val s2_old_way = vlb_q.map(e =>  e.old(asid_i, sdid_i)).U
+  val s2_old_way = vlb_q.map(e =>  e.old(asid_i, csid_i)).U
 
   s2_rpl_way  := Any(s2_inv_way) ?? PrL(s2_inv_way) ::
                  Any(s2_old_way) ?? PrL(s2_old_way) ::
@@ -442,7 +442,7 @@ class VLB(val P: Param, N: Int) extends Module {
   // just retry without forwarding
   val s1_ttw_hit   = s1_req_q       &&
                      s2_ttw_res_raw &&
-                     s2_ttw_res_pld.hit(vsc_vpn(s1_req_vpn_q), asid_i, sdid_i)
+                     s2_ttw_res_pld.hit(vsc_vpn(s1_req_vpn_q), asid_i, csid_i)
 
   // really start ttw
   val s1_mis_vld   = s1_mis && !kill_i(0) && !s1_ttw_hit
@@ -451,7 +451,7 @@ class VLB(val P: Param, N: Int) extends Module {
   sp_ttw_res      := s1_hit && !s1_err_any
   sp_ttw_res_pld  := VMP(P,
                          asid_i,
-                         sdid_i,
+                         csid_i,
                          s1_req_vpn_q,
                          s1_res_mpn,
                          s1_hit_mux.attr,

@@ -7,7 +7,7 @@ import  midgard.util._
 
 
 class VTDReq(val P: Param) extends Bundle {
-  val wnr  = Bool()
+  val cmd  = UInt(3.W)
   val mcn  = UInt(P.mcnBits.W)
   val vec  = UInt(P.dirBits.W)
 }
@@ -20,10 +20,10 @@ class VTDEntry(val P: Param) extends Bundle {
 
 
 object VTDReq {
-  def apply(P: Param, w: Bool, m: UInt, v: UInt): VTDReq = {
+  def apply(P: Param, c: UInt, m: UInt, v: UInt): VTDReq = {
     val ret = Pin(new VTDReq(P))
 
-    ret.wnr := w
+    ret.cmd := c
     ret.mcn := m
     ret.vec := v
     ret
@@ -34,7 +34,7 @@ object VTDEntry {
   def apply(P: Param, t: UInt, v: UInt): VTDEntry = {
     val ret = Pin(new VTDEntry(P))
 
-    ret.vld := true.B
+    ret.vld := Any(v)
     ret.tag := t
     ret.vec := v
     ret
@@ -55,13 +55,6 @@ class VTD(val P: Param) extends Module {
 
   // ---------------------------
   // logic
-
-  val
-     (inv_fsm_idle ::
-      inv_fsm_col  ::
-      inv_fsm_old  ::
-      inv_fsm_new  ::
-      inv_fsm_null) = Enum(4)
 
   val vtd_res = vtd_res_o.fire
 
@@ -94,7 +87,9 @@ class VTD(val P: Param) extends Module {
   val s1_rpl_mux   = OrM(s1_rpl_way, s1_rdata)
 
   // llc promotes a rd to have wr permission
-  val s1_wnr       = s1_req_pld_q.wnr || dir_fwd_i.wnr
+  val s1_cmd_rd    = s1_req_pld_q.cmd(0)
+  val s1_cmd_wr    = s1_req_pld_q.cmd(1) || dir_fwd_i.cmd(1)
+  val s1_cmd_ev    = s1_req_pld_q.cmd(2)
 
   // llc tracks the line while vtd doesn't. this should also be considered as a hit
   val s1_hit       = s1_hit_any || Any(dir_fwd_i.vec)
@@ -102,34 +97,40 @@ class VTD(val P: Param) extends Module {
 
   Chk(s1_hit_any  -> Non(dir_fwd_i.vec & ~s1_hit_mux.vec))
 
-  //                        ram     old   new
-  //   wnr   hit        ->  req           req+ram
-  //   wnr  !hit   inv  ->  req           req
-  //   wnr  !hit  !inv  ->  req     ram   req
-  //  !wnr   hit   inc  -> (req+ram)              (timing)
-  //  !wnr   hit  !inc  ->  req+ram
-  //  !wnr  !hit   inv  ->  req
-  //  !wnr  !hit  !inv  ->  req     ram
+  //                        ram     res
+  //   wr    hit        ->  0       ram-req
+  //   wr   !hit   inv  ->
+  //   wr   !hit  !inv  ->
+  //   rd    hit   inc  ->
+  //   rd    hit  !inc  ->  req+ram
+  //   rd   !hit   inv  ->  req+ram
+  //   rd   !hit  !inv  ->  req+ram rpl
+  //   ev    hit        ->  ram-req req
+
+  val s1_vec_add   = s1_vec |  s1_req_pld_q.vec
+  val s1_vec_sub   = s1_vec & ~s1_req_pld_q.vec
+
+  val s1_wen       = s1_req_q  && (s1_cmd_wr &&     s1_hit                           ||
+                                   s1_cmd_rd && Non(s1_hit_way.U & s1_req_pld_q.vec) ||
+                                   s1_cmd_ev)
 
   val s1_wdata     = VTDEntry(P,
                               s1_tag,
-                              s1_req_pld_q.vec |
-                              EnQ(s1_hit_any && !s1_wnr, s1_vec))
+                              OrM(Seq(s1_cmd_rd,
+                                      s1_cmd_ev),
+                                  Seq(s1_vec_add,
+                                      s1_vec_sub)))
 
-  val s1_res_old   = s1_req_q && !s1_hit_any && !s1_inv_any
-  val s1_res_new   = s1_req_q &&  s1_wnr
+  val s1_res       = s1_req_q  && (s1_cmd_wr &&  s1_hit && Any(s1_vec_sub) ||
+                                   s1_cmd_rd && !s1_hit && Non(s1_inv_way) ||
+                                   s1_cmd_ev)
 
-  val s2_res_old_q = RegEnable(VTDReq(P,
-                                      false.B,
-                                      s1_rpl_mux.tag ## s1_idx,
-                                      s1_rpl_mux.vec),
-                               s1_res_old)
+  val s1_res_mcn   = s1_cmd_rd ?? (s1_rpl_mux.tag ## s1_idx) ::
+                                  (s1_tag         ## s1_idx)
 
-  val s2_res_new_q = RegEnable(VTDReq(P,
-                                      false.B,
-                                      s1_tag ## s1_idx,
-                                      s1_req_pld_q.vec | s1_vec),
-                               s1_res_new)
+  val s1_res_vec   = s1_cmd_wr ??  s1_vec_sub     ::
+                     s1_cmd_rd ??  s1_rpl_mux.vec ::
+                                   s1_req_pld_q.vec
 
   // reset
   val rst_q     = Pin(UInt((P.vtdBits + 1).W))
@@ -149,7 +150,7 @@ class VTD(val P: Param) extends Module {
     val ram_ren    = s0_req
     val ram_raddr  = s0_idx
 
-    val ram_wen    = rst_pend || s1_req_q  && s1_rpl_way(i)
+    val ram_wen    = rst_pend || s1_wen    && s1_rpl_way(i)
     val ram_waddr  = rst_pend ?? rst_idx   :: s1_idx
     val ram_wdata  = rst_pend ?? rst_wdata :: s1_wdata
 
@@ -166,56 +167,22 @@ class VTD(val P: Param) extends Module {
     s1_inv_way(i) := s1_req_q && !s1_rdata(i).vld
   }
 
-  // fsm
-  val inv_fsm_en  = Pin(Bool())
-  val inv_fsm_q   = Pin(UInt(2.W))
-  val inv_fsm_nxt = Pin(UInt(2.W))
+  val s2_req_q     = RegEnable(s1_res,
+                               false.B,
+                               s1_res || vtd_res)
 
-  val s1_res_col  = s1_res_old && s1_res_new
-  val s1_fsm_nxt  = s1_res_col ?? inv_fsm_col ::
-                    s1_res_old ?? inv_fsm_old ::
-                    s1_res_new ?? inv_fsm_new ::
-                                  inv_fsm_idle
-
-  // default
-  inv_fsm_en  := false.B
-  inv_fsm_nxt := inv_fsm_q
-
-  switch (inv_fsm_q) {
-    is (inv_fsm_idle) {
-      inv_fsm_en  := s1_res_old || s1_res_new
-      inv_fsm_nxt := s1_fsm_nxt
-    }
-    is (inv_fsm_col) {
-      inv_fsm_en  := vtd_res
-      inv_fsm_nxt := inv_fsm_new
-    }
-    is (inv_fsm_old) {
-      inv_fsm_en  := vtd_res
-      inv_fsm_nxt := s1_fsm_nxt
-    }
-    is (inv_fsm_new) {
-      inv_fsm_en  := vtd_res
-      inv_fsm_nxt := s1_fsm_nxt
-    }
-  }
-
-  inv_fsm_q := RegEnable(inv_fsm_nxt, inv_fsm_idle, inv_fsm_en)
-
-  val inv_fsm_is_col = inv_fsm_q === inv_fsm_col
-  val inv_fsm_is_old = inv_fsm_q === inv_fsm_old
-  val inv_fsm_is_new = inv_fsm_q === inv_fsm_new
+  val s2_res_mcn_q = RegEnable(s1_res_mcn, s1_res)
+  val s2_res_vec_q = RegEnable(s1_res_vec, s1_res)
 
 
   //
   // output
 
-  vtd_req_i.ready := rst_done && !s1_req_q && !inv_fsm_is_col &&
-                       !(vtd_res_o.valid && !vtd_res_o.ready)
+  vtd_req_i.ready := rst_done && !s1_req_q && !(vtd_res_o.valid && !vtd_res_o.ready)
 
-  vtd_res_o.valid := inv_fsm_is_col || inv_fsm_is_new || inv_fsm_is_old
+  vtd_res_o.valid := s1_req_q
   vtd_res_o.bits  := VTDReq(P,
-                            true.B,
-                            inv_fsm_is_new ?? s2_res_new_q.mcn :: s2_res_old_q.mcn,
-                            inv_fsm_is_new ?? s2_res_new_q.vec :: s2_res_old_q.vec)
+                            2.U,
+                            s2_res_mcn_q,
+                            s2_res_vec_q)
 }

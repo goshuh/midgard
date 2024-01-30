@@ -15,7 +15,7 @@ module SPXPM #(parameter A =  6,
     reg [D-1:0] data_q;
 
     always_ff @(posedge clk)
-        if (en & ~wnr)
+        if (en)
             data_q <= ram[addr];
 
     assign data = data_q;

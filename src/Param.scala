@@ -12,7 +12,7 @@ case class Param(
   clBits:   Int     = 512,
 
   asidBits: Int     = 16,
-  sdidBits: Int     = 12,
+  csidBits: Int     = 12,
 
   pmtBits:  Int,
 

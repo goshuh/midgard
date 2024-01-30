@@ -18,7 +18,7 @@ class MemRes(val P: Param) extends Bundle {
 
 class VSCTab(val P: Param) extends Bundle {
   // 2 bytes in size
-  val sdid  = UInt(P.sdidBits.W)
+  val csid  = UInt(P.csidBits.W)
   val attr  = UInt(4.W)
 
   def v = attr(0)
@@ -37,7 +37,7 @@ class VSCVMA(val P: Param) extends Bundle {
   def v = attr(0)
   def u = attr(4)
   def g = attr(5)
-  def z = attr(6)
+  def p = attr(6)
   def e = attr(7)
 }
 
@@ -46,7 +46,7 @@ class VSCCfg extends Bundle {
   val vsc   = UInt( 6.W)
   val top   = UInt( 6.W)
   val siz   = UInt( 6.W)
-  val tsl   = UInt( 6.W)
+  val tvi   = UInt( 6.W)
 
   val mmask = UInt(32.W) // max 32 offs bits for the minimum vsc (2 mb minimum)
   val imask = UInt(32.W) // max 32 idx bits
@@ -79,24 +79,30 @@ class VSC(val P: Param) extends Module {
   // ---------------------------
   // io
 
-  val vlb_req_i = IO(Vec(P.ttwNum, Flipped(    Valid(new VLBReq(P)))))
-  val vlb_res_o = IO(Vec(P.ttwNum,             Valid(new VMA   (P))))
-  val vlb_ext_o = IO(Vec(P.ttwNum,            Output(new TTWExt(P))))
+  val vlb_req_i   = IO(Vec(P.ttwNum, Flipped(    Valid(new VLBReq(P)))))
+  val vlb_res_o   = IO(Vec(P.ttwNum,             Valid(new VMA   (P))))
+  val vlb_ext_o   = IO(Vec(P.ttwNum,            Output(new TTWExt(P))))
 
-  val mem_req_o = IO(                      Decoupled(new MemReq(P)))
-  val mem_res_i = IO(              Flipped(Decoupled(new MemRes(P))))
+  val int_req_o   = IO(                         Output(UInt(4.W)))
 
-  val vtd_req_i = IO(              Flipped(Decoupled(new VTDReq(P))))
-  val vtd_req_o = IO(                         Output(new VTDReq(P)))
-  val vtd_res_o = IO(                         Output(Bool()))
+  val mem_req_o   = IO(                      Decoupled(new MemReq(P)))
+  val mem_res_i   = IO(              Flipped(Decoupled(new MemRes(P))))
 
-  val satp_i    = IO(                          Input(UInt(64.W)))
-  val uatp_i    = IO(                          Input(UInt(64.W)))
-  val uatc_i    = IO(                          Input(new VSCCfg()))
-  val asid_i    = IO(                          Input(UInt(P.asidBits.W)))
-  val sdid_i    = IO(                          Input(UInt(P.sdidBits.W)))
+  val vtd_req_i   = IO(              Flipped(Decoupled(new VTDReq(P))))
+  val vtd_req_o   = IO(                         Output(new VTDReq(P)))
+  val vtd_res_o   = IO(                         Output(Bool()))
 
-  val idle_o    = IO(                         Output(Vec (P.ttwNum, Bool())))
+  val satp_i      = IO(                          Input(UInt(64.W)))
+  val uatp_i      = IO(                          Input(UInt(64.W)))
+  val uatc_i      = IO(                          Input(new VSCCfg()))
+  val asid_i      = IO(                          Input(UInt(P.asidBits.W)))
+  val csid_i      = IO(                          Input(UInt(P.csidBits.W)))
+
+  val idle_o      = IO(                         Output(Vec (P.ttwNum, Bool())))
+
+  val kill_i      = IO(                          Input(UInt(3.W)))
+  val kill_asid_i = IO(                          Input(UInt(P.asidBits.W)))
+  val kill_csid_i = IO(                          Input(UInt(P.csidBits.W)))
 
 
   // ---------------------------
@@ -108,7 +114,7 @@ class VSC(val P: Param) extends Module {
       vsc_fsm_res  ::
       vsc_fsm_null) = Enum(4)
 
-  val vtd_req        = vtd_req_i.fire && vtd_req_i.bits.wnr
+  val vtd_req        = vtd_req_i.fire && vtd_req_i.bits.cmd(1)
   val vtd_req_pld    = vtd_req_i.bits
 
   val mem_req        = mem_req_o.fire
@@ -132,17 +138,18 @@ class VSC(val P: Param) extends Module {
   val s0_req_va      = s0_req_pld.vpn ## 0.U(12.W)
   val s0_req_idx_s   = BSR(s0_req_va, uatc_i.idx)(32.W) & uatc_i.imask
   val s0_req_vsc_s   = BSR(s0_req_va, uatc_i.vsc)( 5.W) & uatc_i.vmask
-  val s0_req_top_s   = BSR(s0_req_va, uatc_i.top)(32.W)
+  val s0_req_top_s   = BSR(s0_req_va, uatc_i.tvi)(32.W)
 
   val s0_req_vmask   = OrR(Dec(s0_req_vsc_s))
   val s0_req_vsh_1   = s0_req_vmask(32 := 1)
   val s0_req_vsh_2   = s0_req_vmask(32 := 2)
-  val s0_req_mmask   = Ext(BFL(uatc_i.mmask, s0_req_vsc_s), P.vaBits)
+  val s0_req_mmask   = Ext(BFL(uatc_i.mmask, s0_req_vsc_s), P.vaBits)(P.vaBits := 12)
 
   val s0_req_min     = Non(s0_req_vsc_s)
-  val s0_req_idx     = vtd_req ?? Ext(vtd_req_pld.mcn, 32) :: (s0_req_idx_s & ~s0_req_vsh_1 | s0_req_vsh_2)
-  val s0_req_bot     = vtd_req ?? 0.U                      :: (s0_req_va    & ~s0_req_mmask)(P.vaBits := 12)
-  val s0_req_top     = vtd_req ?? 0.U                      ::  s0_req_top_s
+  val s0_req_idx     = s0_req_idx_s   & ~s0_req_vsh_1 | s0_req_vsh_2
+  val s0_req_bot     = s0_req_pld.vpn & ~s0_req_mmask
+  val s0_req_top     = s0_req_top_s
+  val s0_req_mcn     = vtd_req_pld.mcn
 
 
   //
@@ -153,13 +160,17 @@ class VSC(val P: Param) extends Module {
   val s1_req_sel_q   = RegEnable(s0_req_sel,   s0_req)
 
   val s1_req_inv     = Non(s1_req_sel_q)
-  val s1_req         = s1_req_q && (s1_req_inv || Non(s1_req_sel_q & vlb_req_i.map(_.bits.kill(0)).U))
+  val s1_req         =     s1_req_q && (s1_req_inv || Non(s1_req_sel_q & vlb_req_i.map(_.bits.kill(0)).U))
+  val s1_req_rdy     = Non(s1_req_q &&  s1_req_inv)
 
   val s1_req_min_q   = RegEnable(s0_req_min,   s0_req)
   val s1_req_idx_q   = RegEnable(s0_req_idx,   s0_req)
   val s1_req_bot_q   = RegEnable(s0_req_bot,   s0_req)
   val s1_req_top_q   = RegEnable(s0_req_top,   s0_req)
-  val s1_req_idx_ram = s1_req_idx_q(P.vscBits.W)
+  val s1_req_mcn_q   = RegEnable(s0_req_mcn,   s0_req)
+
+  val s1_req_idx_ram = s1_req_inv ?? s1_req_mcn_q(1 :+ P.vscBits) ::
+                                     s1_req_idx_q(0 :+ P.vscBits)
 
 
   //
@@ -177,18 +188,21 @@ class VSC(val P: Param) extends Module {
   val s2_req_bot_q   = RegEnable(s1_req_bot_q, s1_req_q)
   val s2_req_top_q   = RegEnable(s1_req_top_q, s1_req_q)
   val s2_req_idx_q   = RegEnable(s1_req_idx_q, s1_req_q)
+  val s2_req_mcn_q   = RegEnable(s1_req_mcn_q, s1_req_q)
 
-  val s2_req_idx_ram = s2_req_idx_q(P.vscBits.W)
+  val s2_req_idx_ram = s2_req_inv ?? s2_req_mcn_q(1 :+ P.vscBits) ::
+                                     s2_req_idx_q(0 :+ P.vscBits)
 
-  val s2_req_idx     = BSL(Ext(s2_req_top_q, 40), uatc_i.tsl) |
-                              (s2_req_idx_q ## !s2_req_min_q)
+  val s2_req_idx     = s2_req_top_q |
+                      (s2_req_idx_q ## !s2_req_min_q)
 
   // maximum 64 mb for the table, should be fine
-  val s2_req_idx_ext = Any(s2_req_idx(40 := 20)) ||
+  val s2_req_idx_ext = Any(s2_req_idx(32 := 20)) ||
                        Any(s2_req_idx(20.W) & uatc_i.tmask)
 
   val s2_rdata       = Pin(Vec(P.vscWays, new VMA(P)))
   val s2_hit_way     = Pin(Vec(P.vscWays, Bool()))
+  val s2_clr_way     = Pin(Vec(P.vscWays, Bool()))
   val s2_old_way     = Pin(Vec(P.vscWays, Bool()))
   val s2_inv_way     = Pin(Vec(P.vscWays, Bool()))
   val s2_hit_mux     = OrM(s2_hit_way, s2_rdata)
@@ -196,6 +210,7 @@ class VSC(val P: Param) extends Module {
   Chk(s2_req_q -> OHp(s2_hit_way.U, true.B))
 
   val s2_hit_any     = Any(s2_hit_way)
+  val s2_clr_any     = Any(s2_clr_way)
   val s2_old_any     = Any(s2_old_way)
   val s2_inv_any     = Any(s2_inv_way)
 
@@ -206,9 +221,9 @@ class VSC(val P: Param) extends Module {
   // actions
   val s2_hit_ttw     = Pin(Vec(P.ttwNum, Bool()))
 
-  val s2_hit_inv     = s2_req &&  s2_hit_any &&  s2_req_inv
-  val s2_hit_vlb     = s2_req &&  s2_hit_any && !s2_req_inv
-  val s2_mis_vlb     = s2_req && !s2_hit_any && !s2_req_inv && Non(s2_hit_ttw)
+  val s2_hit_inv     = s2_req &&  s2_req_inv &&  s2_clr_any
+  val s2_hit_vlb     = s2_req && !s2_req_inv &&  s2_hit_any
+  val s2_mis_vlb     = s2_req && !s2_req_inv && !s2_hit_any && Non(s2_hit_ttw)
 
   val s2_mis_vlb_int = s2_mis_vlb && !s2_req_idx_ext
   val s2_mis_vlb_ext = s2_mis_vlb &&  s2_req_idx_ext
@@ -227,14 +242,17 @@ class VSC(val P: Param) extends Module {
   val rst_idx        = rst_q(P.vscBits.W)
   val rst_vma        = 0.U.asTypeOf(new VMA(P))
 
-  rst_q := RegEnable(rst_q + 1.U,
+  // simplification: by-asid/sdid flush just kills everything
+  val rst_kill       = Any(kill_i(2, 1))
+
+  rst_q := RegEnable(NeQ(rst_kill, rst_q + 1.U),
                      0.U,
-                     rst_pend)
+                     rst_pend || rst_kill)
 
   for (i <- 0 until P.vscWays) {
     val ram = Module(new SPRAM(P.vscBits, new VMA(P).getWidth, 1))
 
-    val s2_inv_we  = s2_hit_inv && s2_hit_way    (i)
+    val s2_inv_we  = s2_hit_inv && s2_clr_way    (i)
     val s3_res_we  = s3_mem_res && s3_mem_res_way(i)
 
     val ram_ren    = s1_req_q
@@ -253,9 +271,15 @@ class VSC(val P: Param) extends Module {
 
     s2_rdata  (i) := ram.rdata.asTypeOf(new VMA(P))
 
-    s2_hit_way(i) := s2_req_q &&  s2_rdata(i).vld && s2_rdata(i).hit(s2_req_pld_q.vpn, asid_i, sdid_i)
-    s2_old_way(i) := s2_req_q &&  s2_rdata(i).vld && s2_rdata(i).old(                  asid_i, sdid_i)
+    s2_hit_way(i) := s2_req_q &&  s2_rdata(i).vld && s2_rdata(i).hit(s2_req_bot_q, asid_i, csid_i)
+    s2_old_way(i) := s2_req_q &&  s2_rdata(i).vld && s2_rdata(i).old(              asid_i, csid_i)
     s2_inv_way(i) := s2_req_q && !s2_rdata(i).vld
+
+    // remove the redundant vsc
+    s2_clr_way(i) := s2_req_q &&
+                         s2_rdata(i).vld &&
+                        (s2_rdata(i).pmt(P.pmtBits := 1) === s2_req_mcn_q((P.vscBits + 1) :+ (P.pmtBits - 1))) &&
+                        (s2_rdata(i).pmt(0)              === s2_req_mcn_q(0))
   }
 
 
@@ -314,7 +338,9 @@ class VSC(val P: Param) extends Module {
     val fsm_is_req  = vsc_q(i).fsm === vsc_fsm_req
     val fsm_is_res  = vsc_q(i).fsm === vsc_fsm_res
 
-    kill   := vlb_req_i(i).bits.kill(0) && !kill_q &&
+    kill   := Non(kill_q) &&
+                 (vlb_req_i(i).bits.kill(0) ||
+                  rst_kill)  &&
                  (fsm_is_req && req ||
                   fsm_is_res)
 
@@ -331,7 +357,7 @@ class VSC(val P: Param) extends Module {
                 !(s2_req_q && s2_req_sel_q(i))
 
     idle_o     (i) := rdy || kill_q
-    s0_req_rdy (i) := rdy && rst_done && !vtd_req
+    s0_req_rdy (i) := rdy && rst_done && !rst_kill && s1_req_rdy && !vtd_req
 
     s2_hit_ttw (i) := fsm_is_busy &&
                          (s2_req_bot_q === vsc_q(i).bot)
@@ -339,10 +365,15 @@ class VSC(val P: Param) extends Module {
     // output
     val res_vld = res && !kill_q
 
-    vlb_res_o(i).valid := hit || ext || res_vld
-    vlb_res_o(i).bits  := hit ?? s2_hit_mux ::
-                          ext ?? VMA(P)     ::
-                                 s3_mem_res_vma
+    vlb_res_o(i).valid    := hit || ext || res_vld
+    vlb_res_o(i).bits     := hit ?? s2_hit_mux ::
+                             ext ?? VMA(P)     ::
+                                    s3_mem_res_vma
+
+    // better for the fully associative vlb
+    vlb_res_o(i).bits.pmt := hit ?? s2_req_idx  (P.pmtBits.W) ::
+                             ext ?? 0.U                       ::
+                                    vsc_q(i).idx(P.pmtBits.W)
 
     // allowed to be valid but with error
     val err = ext     ||
@@ -361,9 +392,9 @@ class VSC(val P: Param) extends Module {
   val mem_res_mux = OrM(mem_res_sel, vsc_q)
   val mem_res_vma = mem_res_pld.data.asTypeOf(new VSCVMA(P))
 
-  val mem_res_vma_hit  = mem_res_vma.tab.map(e => e.v && (e.sdid === sdid_i)).U
+  val mem_res_vma_hit  = mem_res_vma.tab.map(e => e.v && (e.csid === csid_i)).U
   val mem_res_vma_attr = mem_res_vma.e ##
-                         mem_res_vma.z ##
+                         mem_res_vma.p ##
                          0.U(1.U)      ##
                          mem_res_vma.u ##
                          OrM(mem_res_vma_hit,
@@ -374,17 +405,17 @@ class VSC(val P: Param) extends Module {
                             (mem_res_vma.g || Any(mem_res_vma_hit))
 
   s3_mem_res     := mem_res && mem_res_vma_vld
-  s3_mem_res_idx := mem_res_mux.idx(P.vscBits.W)
+  s3_mem_res_idx := mem_res_mux.idx(1 :+ P.vscBits)
   s3_mem_res_way := mem_res_mux.way
   s3_mem_res_vma := VMA(P,
                         mem_res_vma_vld,
                         asid_i,
-                        sdid_i,
+                        csid_i,
                         mem_res_mux.bot,
                         mem_res_vma.bound,
                         mem_res_vma.offs,
                         mem_res_vma.g ?? mem_res_vma.attr :: mem_res_vma_attr,
-                        mem_res_mux.idx(P.pmtBits.W))
+                        mem_res_mux.idx((P.vscBits + 1) :+ (P.pmtBits - 1)) ## mem_res_mux.idx(0))
 
 
   //
@@ -393,9 +424,9 @@ class VSC(val P: Param) extends Module {
   val mem_req_arr  = uatp_i(48.W) ## 0.U(6.W)
   val mem_req_idx  = mem_req_mux.idx
 
-  vtd_req_i.ready := Non(s1_req_q && s1_req_inv)
+  vtd_req_i.ready := s1_req_rdy || rst_kill || rst_pend
   vtd_req_o       := VTDReq(P,
-                            vtd_req,
+                            vtd_req ## 0.U(1.W),
                             vtd_req_pld.mcn,
                             vtd_req_pld.vec)
 
@@ -407,4 +438,6 @@ class VSC(val P: Param) extends Module {
                             mem_req_arr | mem_req_idx)
 
   mem_res_i.ready := Non(vtd_req)
+
+  int_req_o       := s2_req ## s2_req_inv ## s2_hit_any ## s2_clr_any
 }

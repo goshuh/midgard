@@ -26,8 +26,8 @@ class BT4Node(val P: Param) extends Bundle {
   // 128 bytes in size
   val ptr   = Vec (5, UInt(64.W))
   val vma   = Vec (4, new BT4VMA(P))
-  val sdid  = UInt(P.sdidBits.W)
-  val res   = Opt (28 - P.sdidBits)
+  val csid  = UInt(P.csidBits.W)
+  val res   = Opt (28 - P.csidBits)
   val num   = UInt(3.W)
   val bot   = Bool()
 }
@@ -38,24 +38,28 @@ class BT4(val P: Param) extends Module {
   // ---------------------------
   // io
 
-  val vlb_req_i = IO(Vec(P.ttwNum, Flipped(    Valid(new VLBReq(P)))))
-  val vlb_res_o = IO(Vec(P.ttwNum,             Valid(new VMA   (P))))
-  val vlb_ext_o = IO(Vec(P.ttwNum,            Output(new TTWExt(P))))
+  val vlb_req_i   = IO(Vec(P.ttwNum, Flipped(    Valid(new VLBReq(P)))))
+  val vlb_res_o   = IO(Vec(P.ttwNum,             Valid(new VMA   (P))))
+  val vlb_ext_o   = IO(Vec(P.ttwNum,            Output(new TTWExt(P))))
 
-  val mem_req_o = IO(                      Decoupled(new MemReq(P)))
-  val mem_res_i = IO(              Flipped(Decoupled(new MemRes(P))))
+  val mem_req_o   = IO(                      Decoupled(new MemReq(P)))
+  val mem_res_i   = IO(              Flipped(Decoupled(new MemRes(P))))
 
-  val vtd_req_i = IO(              Flipped(Decoupled(new VTDReq(P))))
-  val vtd_req_o = IO(                         Output(new VTDReq(P)))
-  val vtd_res_o = IO(                         Output(Bool()))
+  val vtd_req_i   = IO(              Flipped(Decoupled(new VTDReq(P))))
+  val vtd_req_o   = IO(                         Output(new VTDReq(P)))
+  val vtd_res_o   = IO(                         Output(Bool()))
 
-  val satp_i    = IO(                          Input(UInt(64.W)))
-  val uatp_i    = IO(                          Input(UInt(64.W)))
-  val uatc_i    = IO(                          Input(new VSCCfg()))
-  val asid_i    = IO(                          Input(UInt(P.asidBits.W)))
-  val sdid_i    = IO(                          Input(UInt(P.sdidBits.W)))
+  val satp_i      = IO(                          Input(UInt(64.W)))
+  val uatp_i      = IO(                          Input(UInt(64.W)))
+  val uatc_i      = IO(                          Input(new VSCCfg()))
+  val asid_i      = IO(                          Input(UInt(P.asidBits.W)))
+  val csid_i      = IO(                          Input(UInt(P.csidBits.W)))
 
-  val idle_o    = IO(                         Output(Bool()))
+  val idle_o      = IO(                         Output(Bool()))
+
+  val kill_i      = IO(                          Input(UInt(3.W)))
+  val kill_asid_i = IO(                          Input(UInt(P.asidBits.W)))
+  val kill_csid_i = IO(                          Input(UInt(P.csidBits.W)))
 
 
   // ---------------------------
@@ -259,7 +263,7 @@ class BT4(val P: Param) extends Module {
     vlb_res_o(i).bits  := VMA(P,
                               ptw_succ,
                               asid_i,
-                              sdid_i,
+                              csid_i,
                               vlb_res_vma.base,
                               vlb_res_vma.bound,
                               vlb_res_vma.offs,
@@ -274,7 +278,7 @@ class BT4(val P: Param) extends Module {
 
   vtd_req_i.ready := true.B
   vtd_req_o       := VTDReq(P,
-                            false.B,
+                            0.U,
                             vtd_req_i.bits.mcn,
                             vtd_req_i.bits.vec)
 

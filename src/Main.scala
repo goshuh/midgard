@@ -49,7 +49,7 @@ package frontside {
     val u_ttw = Module(new VSC(P))
 
     val asid  = satp_i(44 :+ P.asidBits)
-    val sdid  = uatp_i(48 :+ P.sdidBits)
+    val csid  = uatp_i(48 :+ P.csidBits)
 
     // the tb doesn't ever need the ready
     u_ilb.vlb_req_i(0).valid := ilb_req_i(0).valid
@@ -63,10 +63,10 @@ package frontside {
     u_ilb.vtd_req_i          := u_ttw.vtd_req_o
     u_ilb.uatc_i             := uatc_i
     u_ilb.asid_i             := asid
-    u_ilb.sdid_i             := sdid
+    u_ilb.csid_i             := csid
     u_ilb.kill_i             := ilb_kill_i
     u_ilb.kill_asid_i        := asid
-    u_ilb.kill_sdid_i        := sdid
+    u_ilb.kill_csid_i        := csid
 
     u_ilb.vlb_res_o(0).ready := true.B
     u_ilb.vlb_res_o(1).ready := true.B
@@ -87,10 +87,10 @@ package frontside {
     u_dlb.vtd_req_i          := u_ttw.vtd_req_o
     u_dlb.uatc_i             := uatc_i
     u_dlb.asid_i             := asid
-    u_dlb.sdid_i             := sdid
+    u_dlb.csid_i             := csid
     u_dlb.kill_i             := dlb_kill_i
     u_dlb.kill_asid_i        := asid
-    u_dlb.kill_sdid_i        := sdid
+    u_dlb.kill_csid_i        := csid
 
     u_dlb.vlb_res_o(0).ready := true.B
     u_dlb.vlb_res_o(1).ready := true.B
@@ -107,7 +107,7 @@ package frontside {
     u_ttw.uatp_i             := uatp_i
     u_ttw.uatc_i             := uatc_i
     u_ttw.asid_i             := asid
-    u_ttw.sdid_i             := sdid
+    u_ttw.csid_i             := csid
 
     // for tb
     ilb_busy_o               := Non(u_ttw.idle_o(0))
