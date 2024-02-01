@@ -88,9 +88,9 @@ class VSC(val P: Param) extends Module {
   val mem_req_o   = IO(                      Decoupled(new MemReq(P)))
   val mem_res_i   = IO(              Flipped(Decoupled(new MemRes(P))))
 
-  val vtd_req_i   = IO(              Flipped(Decoupled(new VTDReq(P))))
-  val vtd_req_o   = IO(                         Output(new VTDReq(P)))
-  val vtd_res_o   = IO(                         Output(Bool()))
+  val uat_req_i   = IO(              Flipped(Decoupled(new UATReq(P))))
+  val uat_req_o   = IO(                         Output(new UATReq(P)))
+  val uat_res_o   = IO(                         Output(Bool()))
 
   val satp_i      = IO(                          Input(UInt(64.W)))
   val uatp_i      = IO(                          Input(UInt(64.W)))
@@ -114,8 +114,8 @@ class VSC(val P: Param) extends Module {
       vsc_fsm_res  ::
       vsc_fsm_null) = Enum(4)
 
-  val vtd_req        = vtd_req_i.fire && vtd_req_i.bits.cmd(1)
-  val vtd_req_pld    = vtd_req_i.bits
+  val uat_req        = uat_req_i.fire && uat_req_i.bits.cmd(1)
+  val uat_req_pld    = uat_req_i.bits
 
   val mem_req        = mem_req_o.fire
   val mem_res        = mem_res_i.fire
@@ -129,7 +129,7 @@ class VSC(val P: Param) extends Module {
   val s0_req_raw     = s0_req_rdy.U & vlb_req_i.map(_.valid).U
   val s0_req_any     = Any(s0_req_raw)
 
-  val s0_req         = vtd_req || s0_req_any
+  val s0_req         = uat_req || s0_req_any
   val s0_req_sel     = RRA(s0_req_raw, s0_req)
   val s0_req_pld     = OrM(s0_req_sel,
                            vlb_req_i.map(_.bits))
@@ -149,7 +149,7 @@ class VSC(val P: Param) extends Module {
   val s0_req_idx     = s0_req_idx_s   & ~s0_req_vsh_1 | s0_req_vsh_2
   val s0_req_bot     = s0_req_pld.vpn & ~s0_req_mmask
   val s0_req_top     = s0_req_top_s
-  val s0_req_mcn     = vtd_req_pld.mcn
+  val s0_req_mcn     = uat_req_pld.mcn
 
 
   //
@@ -357,7 +357,7 @@ class VSC(val P: Param) extends Module {
                 !(s2_req_q && s2_req_sel_q(i))
 
     idle_o     (i) := rdy || kill_q
-    s0_req_rdy (i) := rdy && rst_done && !rst_kill && s1_req_rdy && !vtd_req
+    s0_req_rdy (i) := rdy && rst_done && !rst_kill && s1_req_rdy && !uat_req
 
     s2_hit_ttw (i) := fsm_is_busy &&
                          (s2_req_bot_q === vsc_q(i).bot)
@@ -424,20 +424,20 @@ class VSC(val P: Param) extends Module {
   val mem_req_arr  = uatp_i(48.W) ## 0.U(6.W)
   val mem_req_idx  = mem_req_mux.idx
 
-  vtd_req_i.ready := s1_req_rdy || rst_kill || rst_pend
-  vtd_req_o       := VTDReq(P,
-                            vtd_req ## 0.U(1.W),
-                            vtd_req_pld.mcn,
-                            vtd_req_pld.vec)
+  uat_req_i.ready := s1_req_rdy || rst_kill || rst_pend
+  uat_req_o       := UATReq(P,
+                            uat_req ## 0.U(1.W),
+                            uat_req_pld.mcn,
+                            uat_req_pld.vec)
 
-  vtd_res_o       := s2_hit_inv
+  uat_res_o       := s2_hit_inv
 
   mem_req_o.valid := Any(mem_req_raw)
   mem_req_o.bits  := MemReq(P,
                             Enc(mem_req_sel),
                             mem_req_arr | mem_req_idx)
 
-  mem_res_i.ready := Non(vtd_req)
+  mem_res_i.ready := Non(uat_req)
 
   int_req_o       := s2_req ## s2_req_inv ## s2_hit_any ## s2_clr_any
 }

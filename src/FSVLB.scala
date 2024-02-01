@@ -73,13 +73,13 @@ class VMA(val P: Param) extends Bundle {
     else
       false.B
   }
-  def clr(k: UInt, a: UInt, c: UInt, d: VTDReq): Bool = {
-    val p = d.mcn(P.pmtBits.W)
+  def clr(k: UInt, a: UInt, c: UInt, u: UATReq): Bool = {
+    val p = u.mcn(P.pmtBits.W)
 
     vld &&
       ((a === asid) &&
       ((c === csid) || g) && k(1) || k(2) ||
-       (p === pmt ) && d.cmd(1))
+       (p === pmt ) && u.cmd(1))
   }
 }
 
@@ -105,13 +105,13 @@ class VMP(val P: Param) extends Bundle {
       ((a =/= asid) ||
        (c =/= csid))
   }
-  def clr(k: UInt, a: UInt, c: UInt, d: VTDReq): Bool = {
-    val p = d.mcn(P.pmtBits.W)
+  def clr(k: UInt, a: UInt, c: UInt, u: UATReq): Bool = {
+    val p = u.mcn(P.pmtBits.W)
 
     vld &&
       ((a === asid) &&
       ((c === csid) || g) && k(1) || k(2) ||
-       (p === pmt ) && d.cmd(1))
+       (p === pmt ) && u.cmd(1))
   }
 }
 
@@ -205,7 +205,7 @@ class VLB(val P: Param, N: Int) extends Module {
   val vlb_res_o   = IO(Vec(N,         Decoupled(new VLBRes(P))))
   val vlb_ttw_o   = IO(                   Valid(new VLBRes(P)))
 
-  val vtd_req_i   = IO(                   Input(new VTDReq(P)))
+  val uat_req_i   = IO(                   Input(new UATReq(P)))
 
   val ttw_req_o   = IO(                   Valid(new VLBReq(P)))
   val ttw_res_i   = IO(       Flipped(    Valid(new VMA   (P))))
@@ -229,7 +229,7 @@ class VLB(val P: Param, N: Int) extends Module {
   val sx_kill        = Any(kill_i(2, 1))
   val sx_qual        = Non(kill_i(2, 1))
 
-  val vtd_req        = vtd_req_i
+  val uat_req        = uat_req_i
 
   val ttw_req        = ttw_req_o.fire
   val ttw_res        = ttw_res_i.fire
@@ -294,7 +294,7 @@ class VLB(val P: Param, N: Int) extends Module {
     val clr = tlb_q(i).clr(kill_i,
                            kill_asid_i,
                            kill_csid_i,
-                           vtd_req)
+                           uat_req)
 
     tlb_q(i)     := RegEnable(sp_ttw_res_pld, set)
     tlb_q(i).vld := RegEnable(set, false.B,   set || clr)
@@ -376,7 +376,7 @@ class VLB(val P: Param, N: Int) extends Module {
     val clr = vlb_q(i).clr(kill_i,
                            kill_asid_i,
                            kill_csid_i,
-                           vtd_req)
+                           uat_req)
 
     val vld = sx_qual && !set && !clr
 

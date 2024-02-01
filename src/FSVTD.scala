@@ -6,7 +6,7 @@ import  midgard._
 import  midgard.util._
 
 
-class VTDReq(val P: Param) extends Bundle {
+class UATReq(val P: Param) extends Bundle {
   val cmd  = UInt(3.W)
   val mcn  = UInt(P.mcnBits.W)
   val vec  = UInt(P.dirBits.W)
@@ -19,9 +19,9 @@ class VTDEntry(val P: Param) extends Bundle {
 }
 
 
-object VTDReq {
-  def apply(P: Param, c: UInt, m: UInt, v: UInt): VTDReq = {
-    val ret = Pin(new VTDReq(P))
+object UATReq {
+  def apply(P: Param, c: UInt, m: UInt, v: UInt): UATReq = {
+    val ret = Pin(new UATReq(P))
 
     ret.cmd := c
     ret.mcn := m
@@ -47,20 +47,20 @@ class VTD(val P: Param) extends Module {
   // ---------------------------
   // io
 
-  val vtd_req_i = IO(Flipped(Decoupled(new VTDReq(P))))
-  val vtd_res_o = IO(        Decoupled(new VTDReq(P)))
+  val uat_req_i = IO(Flipped(Decoupled(new UATReq(P))))
+  val uat_res_o = IO(        Decoupled(new UATReq(P)))
 
-  val dir_fwd_i = IO(            Input(new VTDReq(P)))
+  val dir_fwd_i = IO(            Input(new UATReq(P)))
 
 
   // ---------------------------
   // logic
 
-  val vtd_res = vtd_res_o.fire
+  val vtd_res = uat_res_o.fire
 
 
-  val s0_req       = vtd_req_i.valid
-  val s0_req_pld   = vtd_req_i.bits
+  val s0_req       = uat_req_i.valid
+  val s0_req_pld   = uat_req_i.bits
 
   val s0_idx       = s0_req_pld.mcn  (P.vtdBits.W)
 
@@ -178,10 +178,10 @@ class VTD(val P: Param) extends Module {
   //
   // output
 
-  vtd_req_i.ready := rst_done && !s1_req_q && !(vtd_res_o.valid && !vtd_res_o.ready)
+  uat_req_i.ready := rst_done && !s1_req_q && !(uat_res_o.valid && !uat_res_o.ready)
 
-  vtd_res_o.valid := s1_req_q
-  vtd_res_o.bits  := VTDReq(P,
+  uat_res_o.valid := s1_req_q
+  uat_res_o.bits  := UATReq(P,
                             2.U,
                             s2_res_mcn_q,
                             s2_res_vec_q)
