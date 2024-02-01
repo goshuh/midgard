@@ -56,7 +56,7 @@ class VTD(val P: Param) extends Module {
   // ---------------------------
   // logic
 
-  val vtd_res = uat_res_o.fire
+  val uat_res = uat_res_o.fire
 
 
   val s0_req       = uat_req_i.valid
@@ -169,7 +169,7 @@ class VTD(val P: Param) extends Module {
 
   val s2_req_q     = RegEnable(s1_res,
                                false.B,
-                               s1_res || vtd_res)
+                               s1_res || uat_res)
 
   val s2_res_mcn_q = RegEnable(s1_res_mcn, s1_res)
   val s2_res_vec_q = RegEnable(s1_res_vec, s1_res)
