@@ -198,13 +198,11 @@ package object util {
       val bwd   = d & ~arb_q
       val sel   = PrR(Any(fwd) ?? fwd :: bwd)
 
-      arb_q := RegEnable(OrL(RoL(sel, 1)),
-                        ~0.U(w.W),
-                         e)
+      arb_q := RegEnable(OrL(RoL(sel, 1)), ((1 << w) - 1).U(w.W), e)
       sel
 
     } else
-     ~0.U(w.W)
+      1.U(w.W)
   }
 
   def PRA(w: Int,  e: Bool): UInt = {

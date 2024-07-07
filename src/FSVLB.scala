@@ -203,6 +203,7 @@ class VLB(val P: Param, N: Int) extends Module {
 
   val vlb_req_i   = IO(Vec(N, Flipped(Decoupled(new VLBReq(P)))))
   val vlb_res_o   = IO(Vec(N,         Decoupled(new VLBRes(P))))
+  val vlb_mis_o   = IO(Vec(N,            Output(Bool())))
   val vlb_ttw_o   = IO(                   Valid(new VLBRes(P)))
 
   val uat_req_i   = IO(                   Input(new UATReq(P)))
@@ -514,6 +515,9 @@ class VLB(val P: Param, N: Int) extends Module {
                                  sp_res_err || s1_req_sel_q(i) && s1_res_err,
                                  sp_res_hit ?? sp_hit_mux_q(i).mpn  :: s1_res_mpn,
                                  sp_res_hit ?? sp_hit_mux_q(i).attr :: s1_hit_mux.attr)
+
+    vlb_mis_o(i) := sp_hit    (i) ||
+                    sp_hit_err(i) && ~sp_hit_inv(i)
   }
 
   vlb_ttw_o.valid := s2_ttw_res_raw
