@@ -150,12 +150,17 @@ class MRQ(val P: Param) extends Module {
   val mrq_mem_req_rdy = Pin(Bool())
   val mrq_mem_req_fwd = Pin(Bool())
 
+  val mrq_ptw_res_sel = Dec(ptw_res_pld.idx)
+
   val mrq_inv         = Neg(mrq_vld)
   val mrq_set_raw     = PrR(mrq_inv)
   val mrq_clr_raw     = Dec(mem_res_pld.idx)
   val mrq_set         = EnQ(llc_req, mrq_set_raw)
 
   // common next state
+  val mrq_fsm_nxt_set = mmu_on          ?? mrq_fsm_mlb_req ::
+                                           mrq_fsm_pre_req
+
   val mrq_fsm_nxt_mlb = mlb_res         ?? mrq_fsm_pre_req ::
                         mlb_res_pld.rdy ?? mrq_fsm_ptw_res ::
                                            mrq_fsm_ptw_dly
@@ -207,7 +212,7 @@ class MRQ(val P: Param) extends Module {
     switch (mrq_q(i).fsm) {
       is (mrq_fsm_idle) {
         fsm_en  := set
-        fsm_nxt := mrq_fsm_mlb_req
+        fsm_nxt := mrq_fsm_nxt_set
       }
       is (mrq_fsm_mlb_req) {
         fsm_en  := mlb_rdy
@@ -253,8 +258,8 @@ class MRQ(val P: Param) extends Module {
     mrq_pre_req(i) := fsm_is_pre_req
 
     mlb := fsm_is_mlb_res && mlb_res
-    ptw := fsm_is_ptw_res && ptw_res
-    mem := fsm_is_mem_res && mem_res
+    ptw := fsm_is_ptw_res && ptw_res && mrq_ptw_res_sel(i)
+    mem := fsm_is_mem_res && mem_res && mrq_clr_raw    (i)
   }
 
   val mrq_mlb_req_any = Any(mrq_mlb_req.U)

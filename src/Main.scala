@@ -108,6 +108,9 @@ package frontside {
     u_ttw.uatc_i             := uatc_i
     u_ttw.asid_i             := asid
     u_ttw.csid_i             := csid
+    u_ttw.kill_i             := ilb_kill_i | dlb_kill_i
+    u_ttw.kill_asid_i        := asid
+    u_ttw.kill_csid_i        := csid
 
     // for tb
     ilb_busy_o               := Non(u_ttw.idle_o(0))

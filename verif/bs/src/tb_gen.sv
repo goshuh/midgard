@@ -68,7 +68,7 @@ class tb_gen extends tb_base;
         if (ptwTop < 9)
             m_ctl[0][11-:9-ptwTop] = {9-ptwTop{1'b1}};
 
-        m_mem.set_b({top, {9{1'b1}}}, {{55-ppnBits{1'b0}}, top, 9'b0, 1'b1});
+        m_mem.set_b({top, {9{1'b1}}}, {{55-ppnBits{1'b0}}, top, 9'h6, 1'b1});
 
         // ma bases
         for (int i = 1; i <= ptwLvl; i++) begin
@@ -234,7 +234,10 @@ class tb_gen extends tb_base;
                     pte = {err[0],  // err
                           {54-ppnBits{1'b0}},
                            ppn,     // ppn
-                           6'b0,    // TODO
+                           2'b0,    // rsw
+                           1'b1,    // d
+                           1'b1,    // a
+                           2'b0,    // gu
                            blk[0],  // x
                            blk[0],  // w
                            blk[0],  // r
