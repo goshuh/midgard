@@ -342,12 +342,15 @@ class VLB(val P: Param, N: Int) extends Module {
   val s2_ttw_res_pld = ttw_res_pld
 
   // vsc mode
+  val s0_imask = uatc_i.imask
+  val s0_tmask = uatc_i.tmask
+
   def vsc_vpn(vpn: UInt): UInt = {
     if (P.vscEn) {
       val va  = vpn ## 0.U(12.W)
-      val vsc = BSR(va, uatc_i.vsc)(5.W) & uatc_i.vmask
+      val vsc = BSR(va & s0_tmask, uatc_i.vsc)(5.W)
 
-      vpn & ~(Ext(BFL(uatc_i.mmask, vsc), P.vaBits))(P.vaBits := 12)
+      vpn & ~(BFL(Ext(s0_imask, P.vaBits)(P.vaBits := 12), vsc))
 
     } else
       vpn

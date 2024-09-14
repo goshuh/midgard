@@ -46,12 +46,11 @@ class VSCCfg extends Bundle {
   val vsc   = UInt( 6.W)
   val top   = UInt( 6.W)
   val siz   = UInt( 6.W)
-  val tvi   = UInt( 6.W)
 
-  val mmask = UInt(32.W) // max 32 offs bits for the minimum vsc (2 mb minimum)
-  val imask = UInt(32.W) // max 32 idx bits
-  val vmask = UInt( 5.W) // max 32 vscs
-  val tmask = UInt(20.W) // max 64 mb for the table
+  def imask = BFL(0.U(32.W), idx)
+  def vmask = BFL(0.U(40.W), vsc)
+  def tmask = BFL(0.U(48.W), top)
+  def smask = BFL(0.U(20.W), siz)
 }
 
 class VSCEntry(val P: Param) extends Bundle {
@@ -135,19 +134,23 @@ class VSC(val P: Param) extends Module {
                            vlb_req_i.map(_.bits))
 
   // calculate the formula
-  val s0_req_va      = s0_req_pld.vpn ## 0.U(12.W)
-  val s0_req_idx_s   = BSR(s0_req_va, uatc_i.idx)(32.W) & uatc_i.imask
-  val s0_req_vsc_s   = BSR(s0_req_va, uatc_i.vsc)( 5.W) & uatc_i.vmask
-  val s0_req_top_s   = BSR(s0_req_va, uatc_i.tvi)(32.W)
+  val s0_imask       = uatc_i.imask
+  val s0_vmask       = uatc_i.vmask
+  val s0_tmask       = uatc_i.tmask
 
-  val s0_req_vmask   = OrR(Dec(s0_req_vsc_s))
-  val s0_req_vsh_1   = s0_req_vmask(32 := 1)
-  val s0_req_vsh_2   = s0_req_vmask(32 := 2)
-  val s0_req_mmask   = Ext(BFL(uatc_i.mmask, s0_req_vsc_s), P.vaBits)(P.vaBits := 12)
+  val s0_req_va      = s0_req_pld.vpn ## 0.U(12.W)
+  val s0_req_idx_s   = BSR(s0_req_va & s0_vmask, uatc_i.idx)(P.vpnBits.W)
+  val s0_req_vsc_s   = BSR(s0_req_va & s0_tmask, uatc_i.vsc)(5.W)
+  val s0_req_top_s   = BSR(BSL(BSR(s0_req_va, uatc_i.top), uatc_i.vsc), uatc_i.idx)(P.vpnBits.W)
+
+  val s0_req_imask   = BFL(Ext(s0_imask, P.vaBits)(P.vaBits := 12), s0_req_vsc_s)
+  val s0_req_vmask   = Ext(BFL(0.U(32.W), s0_req_vsc_s), P.vaBits)
+  val s0_req_vs1     = ShR(s0_req_vmask, 1)
+  val s0_req_vs2     = ShR(s0_req_vmask, 2)
 
   val s0_req_min     = Non(s0_req_vsc_s)
-  val s0_req_idx     = s0_req_idx_s   & ~s0_req_vsh_1 | s0_req_vsh_2
-  val s0_req_bot     = s0_req_pld.vpn & ~s0_req_mmask
+  val s0_req_idx     = s0_req_idx_s   & ~s0_req_vs1 | s0_req_vs2
+  val s0_req_bot     = s0_req_pld.vpn & ~s0_req_imask
   val s0_req_top     = s0_req_top_s
   val s0_req_mcn     = uat_req_pld.mcn
 
@@ -193,12 +196,12 @@ class VSC(val P: Param) extends Module {
   val s2_req_idx_ram = s2_req_inv ?? s2_req_mcn_q(1 :+ P.vscBits) ::
                                      s2_req_idx_q(0 :+ P.vscBits)
 
-  val s2_req_idx     = s2_req_top_q |
-                      (s2_req_idx_q ## !s2_req_min_q)
+  val s2_req_idx     = ShR(s2_req_top_q | s2_req_idx_q, 1) ## !s2_req_min_q
 
   // maximum 64 mb for the table, should be fine
-  val s2_req_idx_ext = Any(s2_req_idx(32 := 20)) ||
-                       Any(s2_req_idx(20.W) & uatc_i.tmask)
+  val s2_smask       = uatc_i.smask
+
+  val s2_req_idx_ext = Any(s2_req_idx & ~Ext(s2_smask, P.vpnBits))
 
   val s2_rdata       = Pin(Vec(P.vscWays, new VMA(P)))
   val s2_hit_way     = Pin(Vec(P.vscWays, Bool()))
