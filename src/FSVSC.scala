@@ -145,11 +145,9 @@ class VSC(val P: Param) extends Module {
 
   val s0_req_imask   = BFL(Ext(s0_imask, P.vaBits)(P.vaBits := 12), s0_req_vsc_s)
   val s0_req_vmask   = Ext(BFL(0.U(32.W), s0_req_vsc_s), P.vaBits)
-  val s0_req_vs1     = ShR(s0_req_vmask, 1)
-  val s0_req_vs2     = ShR(s0_req_vmask, 2)
 
   val s0_req_min     = Non(s0_req_vsc_s)
-  val s0_req_idx     = s0_req_idx_s   & ~s0_req_vs1 | s0_req_vs2
+  val s0_req_idx     = s0_req_idx_s   & ~s0_req_vmask | ShR(s0_req_vmask, 1)
   val s0_req_bot     = s0_req_pld.vpn & ~s0_req_imask
   val s0_req_top     = s0_req_top_s
   val s0_req_mcn     = uat_req_pld.mcn
@@ -196,7 +194,7 @@ class VSC(val P: Param) extends Module {
   val s2_req_idx_ram = s2_req_inv ?? s2_req_mcn_q(1 :+ P.vscBits) ::
                                      s2_req_idx_q(0 :+ P.vscBits)
 
-  val s2_req_idx     = ShR(s2_req_top_q | s2_req_idx_q, 1) ## !s2_req_min_q
+  val s2_req_idx     = ShL(s2_req_top_q | s2_req_idx_q, 1) | !s2_req_min_q
 
   // maximum 64 mb for the table, should be fine
   val s2_smask       = uatc_i.smask
