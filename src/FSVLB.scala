@@ -476,23 +476,17 @@ class VLB(val P: Param, N: Int) extends Module {
   val s2_vsc_err_vld_q = RegEnable(s2_vsc_err_set || !s2_err_clr, false.B, s2_vsc_err_set || s2_err_clr)
   val s2_vsc_err_vpn_q = RegEnable(s2_vsc_err_vpn,                         s2_vsc_err_set)
 
-  def sx_inv_err(v: UInt): UInt = {
-    val hit_ttw_q = s2_ttw_err_vld_q && (v === s2_ttw_err_vpn_q)
-    val hit_vsc_q = s2_vsc_err_vld_q && (v === s2_vsc_err_vpn_q)
-    val hit_ttw   = s2_ttw_err_set   && (v === s2_ttw_err_vpn)
+  for (i <- 0 until N) {
+    val hit_ttw_q = s2_ttw_err_vld_q && (sp_req_vpn(i) === s2_ttw_err_vpn_q)
+    val hit_vsc_q = s2_vsc_err_vld_q && (sp_req_vpn(i) === s2_vsc_err_vpn_q)
+    val hit_ttw   = s2_ttw_err_set   && (sp_req_vpn(i) === s2_ttw_err_vpn)
 
     val err = hit_ttw_q || hit_vsc_q || hit_ttw
     val inv = hit_ttw_q && s2_ttw_err_inv_q ||
               hit_ttw   && s2_ttw_err_inv
 
-    inv ## err
-  }
-
-  for (i <- 0 until N) {
-    val sp_inv_err = sx_inv_err(sp_req_vpn(i))
-
-    sp_hit_inv(i) := sp_req(i) && sx_qual && sp_inv_err(1)
-    sp_hit_err(i) := sp_req(i) && sx_qual && sp_inv_err(0)
+    sp_hit_inv(i) := sp_req(i) && sx_qual && inv
+    sp_hit_err(i) := sp_req(i) && sx_qual && err
   }
 
 
@@ -519,8 +513,8 @@ class VLB(val P: Param, N: Int) extends Module {
                                  sp_res_hit ?? sp_hit_mux_q(i).mpn  :: s1_res_mpn,
                                  sp_res_hit ?? sp_hit_mux_q(i).attr :: s1_hit_mux.attr)
 
-    vlb_mis_o(i) := sp_hit    (i) ||
-                    sp_hit_err(i) && ~sp_hit_inv(i)
+    vlb_mis_o(i) := Non(sp_hit    (i) ||
+                        sp_hit_err(i) && !sp_hit_inv(i))
   }
 
   vlb_ttw_o.valid := s2_ttw_res_raw
